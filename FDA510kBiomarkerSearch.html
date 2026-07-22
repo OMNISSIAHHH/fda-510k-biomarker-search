@@ -629,7 +629,7 @@ function renderChart(valid) {
         x: {
           stacked: true,
           grid: { color: 'rgba(10,40,70,.08)' },
-          ticks: { color: (ctx) => (valid[ctx.index] && valid[ctx.index].approved === 0) ? '#DC2626' : '#4A5A68' }
+          ticks: { color: (ctx) => (valid[ctx.index] && valid[ctx.index].approved === 0) ? '#0066B3' : '#4A5A68' }
         },
         y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(10,40,70,.08)' } }
       },
