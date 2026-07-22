@@ -72,6 +72,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
 .sumtable td:nth-child(1),.sumtable td:nth-child(3),.sumtable td:nth-child(4),.sumtable td:nth-child(5){font-family:var(--mono);font-variant-numeric:tabular-nums}
 .sumtable tr.rowmain:hover{background:var(--bg2);cursor:pointer}
 .biocell{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-weight:600}
+.fullname{font-weight:400;color:var(--tx3);font-size:12.5px}
 .mmtag{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--yel);border:1px solid var(--yel);padding:1px 6px;cursor:help}
 .chev{display:inline-block;transition:transform .15s;color:var(--tx3);font-size:11px}
 .chev.open{transform:rotate(90deg)}
@@ -278,6 +279,104 @@ function buildAntigenExpr(term) {
   return buildExactExpr(antigen);
 }
 
+// Reference list of common biomarker abbreviations -> full name, keyed by the term with
+// "Anti-"/Ig-class stripped and lowercased (so "GADA", "Anti-GADA", "Anti-GADA IgG" all
+// resolve the same way). Best-effort, not exhaustive. `search` overrides the phrase used
+// for tier 4 below when the fully-spelled-out name doesn't actually appear in FDA text but
+// a shorter form does (e.g. IA-2A's product literature says "IA-2", not "Insulinoma-
+// Associated Protein 2") — display always shows `full`.
+const ABBREVIATION_EXPANSIONS = {
+  'gada': { full: 'Glutamic Acid Decarboxylase Antibody' },
+  'ia-2a': { full: 'Insulinoma-Associated Protein 2 Antibody', search: 'IA-2' },
+  'iaa': { full: 'Insulin Autoantibody' },
+  'ica': { full: 'Islet Cell Antibody' },
+  'znt8a': { full: 'Zinc Transporter 8 Antibody' },
+  'ana': { full: 'Antinuclear Antibody' },
+  'c1q': { full: 'Complement Component 1q' },
+  'cenp-b': { full: 'Centromere Protein B' },
+  'dsdna': { full: 'Double-Stranded DNA' },
+  'his': { full: 'Histone' },
+  'jo-1': { full: 'Histidyl-tRNA Synthetase' },
+  'nrnp/sm': { full: 'Nuclear Ribonucleoprotein / Smith Antigen' },
+  'nuc': { full: 'Nucleosome' },
+  'pcna': { full: 'Proliferating Cell Nuclear Antigen' },
+  'pm-scl': { full: 'Polymyositis-Scleroderma Antigen' },
+  'rib p': { full: 'Ribosomal P Protein' },
+  'ro-52': { full: 'Ro52 / TRIM21', search: 'Ro52' },
+  'scl-70': { full: 'Topoisomerase I' },
+  'sm': { full: 'Smith Antigen' },
+  'ss-a/ro': { full: "Sjogren's Syndrome Antigen A / Ro" },
+  'ss-b': { full: "Sjogren's Syndrome Antigen B / La" },
+  'u1rnp': { full: 'U1 Ribonucleoprotein' },
+  'achr': { full: 'Acetylcholine Receptor' },
+  'aqp4': { full: 'Aquaporin-4' },
+  'nmdar': { full: 'N-Methyl-D-Aspartate Receptor' },
+  'bp180': { full: 'Bullous Pemphigoid Antigen 180' },
+  'bp230': { full: 'Bullous Pemphigoid Antigen 230' },
+  'dsg1': { full: 'Desmoglein 1' },
+  'dsg3': { full: 'Desmoglein 3' },
+  'if': { full: 'Intrinsic Factor' },
+  'pca': { full: 'Parietal Cell Antibody' },
+  'cl': { full: 'Cardiolipin' },
+  'ps/pt': { full: 'Phosphatidylserine / Prothrombin' },
+  'beta2-gp1': { full: 'Beta-2 Glycoprotein 1' },
+  'beta2-gp1-domain1': { full: 'Beta-2 Glycoprotein 1, Domain 1' },
+  'ccp': { full: 'Cyclic Citrullinated Peptide' },
+  'ra33': { full: 'Rheumatoid Arthritis Antigen 33 (hnRNP-A2)' },
+  'mcv': { full: 'Mutated Citrullinated Vimentin' },
+  'mmp-3': { full: 'Matrix Metalloproteinase-3' },
+  'rf': { full: 'Rheumatoid Factor' },
+  'ttg': { full: 'Tissue Transglutaminase' },
+  'dgp': { full: 'Deamidated Gliadin Peptide' },
+  'asca': { full: 'Anti-Saccharomyces Cerevisiae Antibody', search: 'Saccharomyces Cerevisiae' },
+  'pla2r': { full: 'Phospholipase A2 Receptor' },
+  'ama-m2': { full: 'Anti-Mitochondrial Antibody, M2 Subtype', search: 'Mitochondrial M2' },
+  'gp210': { full: 'Glycoprotein 210' },
+  'lc-1': { full: 'Liver Cytosol Type 1' },
+  'lkm-1': { full: 'Liver Kidney Microsomal Type 1' },
+  'sla/lp': { full: 'Soluble Liver Antigen / Liver Pancreas' },
+  'sp100': { full: 'Sp100 Nuclear Antigen' },
+  'asma': { full: 'Anti-Smooth Muscle Antibody' },
+  'gbm': { full: 'Glomerular Basement Membrane' },
+  'mpo': { full: 'Myeloperoxidase' },
+  'pr3': { full: 'Proteinase 3' },
+  'kl-6': { full: 'Krebs von den Lungen-6' },
+  'psa': { full: 'Prostate-Specific Antigen' },
+  'bnp': { full: 'Brain Natriuretic Peptide' },
+  'hba1c': { full: 'Hemoglobin A1c' },
+  'crp': { full: 'C-Reactive Protein' },
+  'tsh': { full: 'Thyroid-Stimulating Hormone' }
+};
+
+function expansionKey(term) {
+  return stripAntiPrefix(stripIsotypeSuffix(term)).trim().toLowerCase();
+}
+
+function lookupExpansion(term) {
+  return ABBREVIATION_EXPANSIONS[expansionKey(term)] || null;
+}
+
+const EXPANSION_STOPWORDS = new Set(['anti', 'antibody']);
+
+function splitExpansionTokens(phrase) {
+  return phrase.split(/[\s/,()]+/).map(s => s.trim()).filter(Boolean)
+    .filter(tok => !EXPANSION_STOPWORDS.has(tok.toLowerCase()));
+}
+
+// Tier 4: search by the expanded full name instead of the abbreviation. Some device names
+// spell the antigen out even when the lab-shorthand abbreviation never appears verbatim
+// (e.g. "GADA" doesn't occur in FDA text, but "Glutamic Acid Decarboxylase" does). A "/"
+// in the full name marks alternate synonyms (e.g. "Ro52 / TRIM21") — those are OR'd, while
+// the words within each alternative are AND'd.
+function buildExpansionExpr(expansion) {
+  if (!expansion) return null;
+  const phrase = expansion.search || expansion.full;
+  const groups = phrase.split('/').map(splitExpansionTokens).filter(g => g.length);
+  if (!groups.length) return null;
+  const groupClause = (f, tokens) => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')';
+  return fieldOr(f => '(' + groups.map(tokens => groupClause(f, tokens)).join(' OR ') + ')');
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function runOpenFdaQuery(expr, apiKey) {
@@ -311,25 +410,35 @@ async function runOpenFdaQuery(expr, apiKey) {
 
 async function fetchBiomarker(term, apiKey) {
   const searchTerm = toSearchTerm(term);
+  const expansion = lookupExpansion(searchTerm);
 
   const exact = await runOpenFdaQuery(buildExactExpr(searchTerm), apiKey);
-  if (exact.total > 0) return { ...exact, matchMode: 'exact' };
+  if (exact.total > 0) return { ...exact, matchMode: 'exact', expansion };
 
   const broadExpr = buildBroadExpr(searchTerm);
   if (broadExpr) {
     await sleep(150);
     const broad = await runOpenFdaQuery(broadExpr, apiKey);
-    if (broad.total > 0) return { ...broad, matchMode: 'broad' };
+    if (broad.total > 0) return { ...broad, matchMode: 'broad', expansion };
   }
 
   const antigenExpr = buildAntigenExpr(searchTerm);
   if (antigenExpr && antigenExpr !== buildExactExpr(searchTerm)) {
     await sleep(150);
     const antigen = await runOpenFdaQuery(antigenExpr, apiKey);
-    if (antigen.total > 0) return { ...antigen, matchMode: 'antigen-only' };
+    if (antigen.total > 0) return { ...antigen, matchMode: 'antigen-only', expansion };
   }
 
-  return { ...exact, matchMode: 'exact' };
+  if (expansion) {
+    const expansionExpr = buildExpansionExpr(expansion);
+    if (expansionExpr) {
+      await sleep(150);
+      const exp = await runOpenFdaQuery(expansionExpr, apiKey);
+      if (exp.total > 0) return { ...exp, matchMode: 'expansion', expansion };
+    }
+  }
+
+  return { ...exact, matchMode: 'exact', expansion };
 }
 
 async function runSearch() {
@@ -349,10 +458,10 @@ async function runSearch() {
     $('progressTxt').textContent = `Searching ${i + 1} of ${terms.length}: ${term}`;
     $('pbarFill').style.width = `${Math.round((i / terms.length) * 100)}%`;
     try {
-      const { total, records, matchMode } = await fetchBiomarker(term, apiKey);
+      const { total, records, matchMode, expansion } = await fetchBiomarker(term, apiKey);
       const approved = records.filter(r => classify(r.decision_description) === 'se').length;
       const notApproved = records.filter(r => classify(r.decision_description) === 'nse').length;
-      state.push({ term, total, approved, notApproved, records, matchMode, error: null });
+      state.push({ term, total, approved, notApproved, records, matchMode, expansion, error: null });
     } catch (e) {
       state.push({ term, total: 0, approved: 0, notApproved: 0, records: [], error: e.message || String(e) });
     }
@@ -370,16 +479,23 @@ const HIGH_APPROVAL_THRESHOLD = 10;
 
 const MATCH_MODE_LABEL = {
   broad: 'Broad match',
-  'antigen-only': 'Antigen-only match'
+  'antigen-only': 'Antigen-only match',
+  expansion: 'Expanded-name match'
 };
 const MATCH_MODE_TITLE = {
   broad: 'No exact phrase match — matched on the same words in any order/position (e.g. "Anti-" dropped).',
-  'antigen-only': 'No match including the Ig-class (IgG/IgA/IgM) — matched on the antigen name alone, since many FDA device names omit the isotype. The count may include products that are not isotype-specific.'
+  'antigen-only': 'No match including the Ig-class (IgG/IgA/IgM) — matched on the antigen name alone, since many FDA device names omit the isotype. The count may include products that are not isotype-specific.',
+  expansion: 'No match on the abbreviation itself — matched by searching its spelled-out full name instead, since some FDA device names use the full term rather than the shorthand.'
 };
 
 function matchModeTag(mode) {
   if (!mode || mode === 'exact') return '';
   return ` <span class="mmtag" title="${escapeHtml(MATCH_MODE_TITLE[mode] || '')}">${MATCH_MODE_LABEL[mode] || mode}</span>`;
+}
+
+function expansionTag(expansion) {
+  if (!expansion) return '';
+  return ` <span class="fullname">(${escapeHtml(expansion.full)})</span>`;
 }
 
 function getRanked() {
@@ -404,7 +520,7 @@ function renderResults() {
     mainRow.className = 'rowmain';
     mainRow.innerHTML = `
       <td class="rankcell">${rank}</td>
-      <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}${matchModeTag(s.matchMode)}</div></td>
+      <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}${expansionTag(s.expansion)}${matchModeTag(s.matchMode)}</div></td>
       <td>${s.total}</td>
       <td><span class="badge ${s.approved >= HIGH_APPROVAL_THRESHOLD ? 'high' : 'low'}">${s.approved}</span></td>
       <td>${s.notApproved}</td>
@@ -497,6 +613,7 @@ $('exportBtn').addEventListener('click', () => {
     ...valid.map((s, i) => ({
       Rank: i + 1,
       Biomarker: s.term,
+      'Full Name': s.expansion ? s.expansion.full : '',
       'Total Submissions': s.total,
       'Cleared (Approved)': s.approved,
       'Not Cleared': s.notApproved,
@@ -506,6 +623,7 @@ $('exportBtn').addEventListener('click', () => {
     ...errored.map(s => ({
       Rank: '',
       Biomarker: s.term,
+      'Full Name': s.expansion ? s.expansion.full : '',
       'Total Submissions': '',
       'Cleared (Approved)': '',
       'Not Cleared': '',
