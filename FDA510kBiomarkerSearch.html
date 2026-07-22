@@ -6,94 +6,98 @@
 <title>FDA 510(k) Biomarker Search</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#fff;--bg2:#F2F5F7;--bg3:#E3E9ED;
-  --tx:#0F1E2B;--tx2:#3D5468;--tx3:#7C93A3;
-  --br:rgba(0,0,0,.14);--br2:rgba(0,0,0,.45);
-  --font:'Barlow','Helvetica Neue',Arial,sans-serif;
-  --fc:'Barlow Condensed','Arial Narrow',Arial,sans-serif;
-  --acc:#0B6FA8;--acc2:#0D8A5F;--red:#C0362C;--yel:#C68A00;--bk:#0C2233;
+  --bg:#fff;--bg2:#F1F0EA;--bg3:#E8E6DE;
+  --tx:#1A1D1F;--tx2:#4B5259;--tx3:#868D93;
+  --br:rgba(20,18,14,.14);--br2:rgba(20,18,14,.55);
+  --font:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;
+  --serif:'IBM Plex Serif',Georgia,'Times New Roman',serif;
+  --mono:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace;
+  --acc:#1D5B7A;--acc2:#1B7A4D;--red:#AE3A32;--yel:#946E00;--bk:#0B1620;
 }
 @media(prefers-color-scheme:dark){
-  :root{--bg:#0E1A24;--bg2:#152531;--bg3:#1B2E3B;--tx:#E7EEF3;--tx2:#8FA6B6;--tx3:#4F6576;--br:rgba(255,255,255,.12);--br2:rgba(255,255,255,.4)}
+  :root{--bg:#1B2024;--bg2:#232A2E;--bg3:#282F33;--tx:#E7E7E2;--tx2:#A9AFB2;--tx3:#6E7679;--br:rgba(255,255,255,.12);--br2:rgba(255,255,255,.42)}
 }
-html,body{height:100%;font-family:var(--font);background:var(--bg3);color:var(--tx);font-size:15px;line-height:1.5}
+html,body{height:100%;font-family:var(--font);background:var(--bg3);color:var(--tx);font-size:15px;line-height:1.55}
 .app{max-width:1080px;margin:0 auto;min-height:100vh;background:var(--bg3);padding:0 0 60px}
 
-.hdr{background:var(--bk);position:sticky;top:0;z-index:10}
-.hdr-top{display:flex;align-items:center;justify-content:space-between;padding:16px 22px}
-.hdr-title{font-family:var(--fc);font-size:22px;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
-.hdr-sub{font-size:11px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
-.hdr-right{display:flex;align-items:center;gap:8px}
-.logo{height:30px;width:auto;display:block}
+.hdr{background:var(--bk);position:sticky;top:0;z-index:10;border-bottom:3px solid var(--acc)}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;padding:17px 22px 15px}
+.hdr-title{font-family:var(--serif);font-size:23px;font-weight:600;color:#fff;letter-spacing:.01em;display:flex;align-items:center;gap:9px}
+.hdr-sub{font-family:var(--mono);font-size:10.5px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.14em;margin-top:4px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.logo{height:28px;width:auto;display:block}
 .gear{background:none;border:1px solid rgba(255,255,255,.2);cursor:pointer;font-size:15px;color:rgba(255,255,255,.55);padding:5px 8px;line-height:1;transition:all .15s}
 .gear:hover{color:#fff;border-color:rgba(255,255,255,.5)}
-.spanel{display:none;background:#0a1a26;border-top:1px solid rgba(255,255,255,.08);padding:12px 22px}
+.spanel{display:none;background:#081119;border-top:1px solid rgba(255,255,255,.08);padding:12px 22px}
 .spanel.open{display:block}
 .srow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.sinfo{font-size:12px;color:rgba(255,255,255,.45);flex:1;min-width:220px}
-.sinfo a{color:rgba(255,255,255,.7)}
-.skey{font-size:12px;padding:6px 10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.2);color:#fff;font-family:var(--font);width:260px}
+.sinfo{font-family:var(--serif);font-style:italic;font-size:12.5px;color:rgba(255,255,255,.5);flex:1;min-width:220px}
+.sinfo a{color:rgba(255,255,255,.75)}
+.skey{font-family:var(--mono);font-size:12px;padding:6px 10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.2);color:#fff;width:260px}
 .skey::placeholder{color:rgba(255,255,255,.35)}
 
 .content{padding:22px}
-.card{background:var(--bg);border:1px solid var(--br2);padding:18px 20px;margin-bottom:16px}
-.stitle{font-family:var(--fc);font-size:13px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.1em;margin:0 0 12px;padding-left:10px;border-left:4px solid var(--acc)}
+.card{background:var(--bg);border:1px solid var(--br2);padding:19px 20px;margin-bottom:16px}
+.captag{display:block;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--acc);text-transform:uppercase;letter-spacing:.12em;margin-bottom:3px}
+.stitle{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--tx);margin:0 0 13px;padding-bottom:9px;border-bottom:2px solid var(--tx)}
 
-textarea#biomarkers{width:100%;min-height:96px;resize:vertical;padding:10px 12px;border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-family:var(--font);font-size:14px}
-.hint{font-size:11px;color:var(--tx3);margin-top:6px}
+textarea#biomarkers{width:100%;min-height:96px;resize:vertical;padding:10px 12px;border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:13.5px}
+.hint{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--tx2);margin-top:8px;line-height:1.55}
 .actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
-button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;border:none;padding:10px 18px;text-transform:uppercase;letter-spacing:.05em;transition:all .15s}
-.btn-primary{background:var(--acc);color:#fff}
-.btn-primary:hover{background:#095a86}
-.btn-primary:disabled{background:var(--tx3);cursor:not-allowed}
+button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;padding:9px 17px;letter-spacing:.01em;transition:all .15s}
+.btn-primary{background:var(--acc);color:#fff;border:1px solid var(--acc)}
+.btn-primary:hover{background:#164a63}
+.btn-primary:disabled{background:var(--tx3);border-color:var(--tx3);cursor:not-allowed}
 .btn-ghost{background:transparent;border:1px solid var(--br2);color:var(--tx2)}
 .btn-ghost:hover{border-color:var(--acc);color:var(--acc)}
-.btn-export{background:var(--acc2);color:#fff}
-.btn-export:hover{background:#096c49}
-.btn-export:disabled{background:var(--tx3);cursor:not-allowed}
+.btn-export{background:transparent;border:1px solid var(--acc2);color:var(--acc2)}
+.btn-export:hover{background:var(--acc2);color:#fff}
+.btn-export:disabled{background:transparent;border-color:var(--tx3);color:var(--tx3);cursor:not-allowed}
 
-.progress{margin-top:14px;font-size:12px;color:var(--tx2)}
-.pbar{height:5px;background:var(--bg2);margin-top:6px;overflow:hidden}
+.progress{margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--tx2)}
+.pbar{height:3px;background:var(--bg2);margin-top:7px;overflow:hidden}
 .pbar-fill{height:100%;background:var(--acc);width:0%;transition:width .2s}
 
 .chartwrap{position:relative;height:280px}
 
-.sumtable{width:100%;border-collapse:collapse;font-size:13.5px}
-.sumtable th{text-align:left;font-size:10.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:2px solid var(--br2)}
+.sumtable{width:100%;border-collapse:collapse;font-size:13.5px;border-bottom:2px solid var(--tx)}
+.sumtable th{text-align:left;font-family:var(--mono);font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em;font-weight:600;padding:9px 10px;border-top:2px solid var(--tx);border-bottom:1px solid var(--br2)}
 .sumtable td{padding:9px 10px;border-bottom:1px solid var(--br)}
+.sumtable td:nth-child(1),.sumtable td:nth-child(3),.sumtable td:nth-child(4),.sumtable td:nth-child(5){font-family:var(--mono);font-variant-numeric:tabular-nums}
 .sumtable tr.rowmain:hover{background:var(--bg2);cursor:pointer}
-.biocell{display:flex;align-items:center;gap:8px;font-weight:700}
-.mmtag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--yel);background:rgba(198,138,0,.14);padding:1px 6px;cursor:help}
+.biocell{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-weight:600}
+.mmtag{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--yel);border:1px solid var(--yel);padding:1px 6px;cursor:help}
 .chev{display:inline-block;transition:transform .15s;color:var(--tx3);font-size:11px}
 .chev.open{transform:rotate(90deg)}
-.badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;letter-spacing:.03em}
-.badge.low{background:rgba(13,138,95,.14);color:var(--acc2)}
-.badge.high{background:rgba(192,54,44,.14);color:var(--red)}
-.badge.err{background:rgba(192,54,44,.14);color:var(--red)}
-.rankcell{font-family:var(--fc);font-weight:800;color:var(--tx3);width:36px}
+.badge{display:inline-flex;align-items:center;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:600;padding:1px 8px;letter-spacing:.02em;border:1px solid currentColor}
+.badge.low{color:var(--acc2)}
+.badge.high{color:var(--red)}
+.badge.err{color:var(--red)}
+.rankcell{font-family:var(--mono);font-weight:600;color:var(--tx);width:36px}
 .detailrow td{padding:0;border-bottom:1px solid var(--br)}
 .detailwrap{display:none;padding:6px 10px 14px 34px;background:var(--bg2)}
 .detailwrap.open{display:block}
-.dtable{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--bg)}
-.dtable th{text-align:left;font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--br2)}
+.dtable{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--bg);border-bottom:1px solid var(--tx3)}
+.dtable th{text-align:left;font-family:var(--mono);font-size:9.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:6px 8px;border-top:1px solid var(--tx3);border-bottom:1px solid var(--br2)}
 .dtable td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--tx2)}
+.dtable td:nth-child(4),.dtable td:nth-child(5){font-family:var(--mono);font-variant-numeric:tabular-nums}
 .dtable tr:last-child td{border-bottom:none}
 .dtable a{color:var(--acc);text-decoration:none}
 .dtable a:hover{text-decoration:underline}
-.dnote{font-size:11px;color:var(--tx3);padding:8px 8px 2px}
-.decl{font-size:11px;font-weight:700;padding:1px 7px}
-.decl.se{background:rgba(13,138,95,.14);color:var(--acc2)}
-.decl.nse{background:rgba(192,54,44,.14);color:var(--red)}
-.decl.other{background:rgba(124,147,163,.14);color:var(--tx3)}
+.dnote{font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--tx3);padding:8px 8px 2px}
+.decl{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:1px 7px;border:1px solid currentColor}
+.decl.se{color:var(--acc2)}
+.decl.nse{color:var(--red)}
+.decl.other{color:var(--tx3)}
 
-.empty{padding:30px;text-align:center;color:var(--tx3);font-size:13px}
-.errline{color:var(--red);font-size:12px}
+.empty{padding:30px;text-align:center;font-family:var(--serif);font-style:italic;color:var(--tx3);font-size:13.5px}
+.errline{font-family:var(--font);color:var(--red);font-size:12px}
 ::-webkit-scrollbar{height:8px;width:8px}
 </style>
 </head>
@@ -135,12 +139,14 @@ button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;bor
     </div>
 
     <div class="card" id="chartCard" style="display:none">
-      <div class="stitle">Cleared Products by Biomarker — Ranked, Fewest First</div>
+      <span class="captag">Figure 1</span>
+      <div class="stitle">Cleared products by biomarker, ranked fewest first</div>
       <div class="chartwrap"><canvas id="chart"></canvas></div>
     </div>
 
     <div class="card" id="resultsCard" style="display:none">
-      <div class="stitle">Results — Ranked by Fewest Approvals</div>
+      <span class="captag">Table 1</span>
+      <div class="stitle">Results, ranked by fewest approvals</div>
       <div class="hint" style="margin:-6px 0 12px">Rank 1 = fewest FDA-cleared products (least competition / most opportunity). Approval counts in red (≥10) indicate a more saturated space.</div>
       <table class="sumtable">
         <thead><tr>
@@ -456,6 +462,10 @@ function renderResults() {
   renderChart(valid);
 }
 
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 11;
+Chart.defaults.color = '#4B5259';
+
 function renderChart(valid) {
   $('chartCard').style.display = valid.length ? 'block' : 'none';
   if (!valid.length) return;
@@ -466,14 +476,14 @@ function renderChart(valid) {
     data: {
       labels: valid.map(s => s.term),
       datasets: [
-        { label: 'Cleared (Approved)', data: valid.map(s => s.approved), backgroundColor: '#0D8A5F' },
-        { label: 'Not Cleared', data: valid.map(s => s.notApproved), backgroundColor: '#C0362C' }
+        { label: 'Cleared (Approved)', data: valid.map(s => s.approved), backgroundColor: '#1B7A4D' },
+        { label: 'Not Cleared', data: valid.map(s => s.notApproved), backgroundColor: '#AE3A32' }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
-      plugins: { legend: { position: 'bottom' } }
+      scales: { x: { stacked: true, grid: { color: 'rgba(20,18,14,.08)' } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(20,18,14,.08)' } } },
+      plugins: { legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } } }
     }
   });
 }
