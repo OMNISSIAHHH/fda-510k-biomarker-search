@@ -625,7 +625,14 @@ function renderChart(valid) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      scales: { x: { stacked: true, grid: { color: 'rgba(10,40,70,.08)' } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(10,40,70,.08)' } } },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: 'rgba(10,40,70,.08)' },
+          ticks: { color: (ctx) => (valid[ctx.index] && valid[ctx.index].approved === 0) ? '#DC2626' : '#4A5A68' }
+        },
+        y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(10,40,70,.08)' } }
+      },
       plugins: {
         legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } },
         tooltip: { callbacks: { footer: () => 'Click to jump to this row in the table' } }
