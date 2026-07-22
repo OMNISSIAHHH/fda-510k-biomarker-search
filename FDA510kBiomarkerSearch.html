@@ -17,7 +17,7 @@
   --br:rgba(10,40,70,.12);--br2:rgba(10,40,70,.28);
   --font:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;
   --mono:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace;
-  --acc:#0066B3;--acc2:#1B7A4D;--red:#C0392B;--yel:#946E00;--bk:#fff;
+  --acc:#0066B3;--acc2:#1B7A4D;--red:#DC2626;--yel:#946E00;--bk:#fff;
 }
 html,body{height:100%;font-family:var(--font);background:var(--bg3);color:var(--tx);font-size:15px;line-height:1.55}
 .app{max-width:1080px;margin:0 auto;min-height:100vh;background:var(--bg3);padding:0 0 60px}
@@ -68,6 +68,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
 .sumtable td{padding:9px 10px;border-bottom:1px solid var(--br)}
 .sumtable td:nth-child(1),.sumtable td:nth-child(3),.sumtable td:nth-child(4),.sumtable td:nth-child(5){font-family:var(--mono);font-variant-numeric:tabular-nums}
 .sumtable tr.rowmain:hover{background:var(--bg2);cursor:pointer}
+.sumtable tr.rowmain.flash{background:#DCEBF7;transition:background .25s}
 .biocell{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-weight:600}
 .fullname{font-weight:400;color:var(--tx3);font-size:12.5px}
 .mmtag{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--yel);border:1px solid var(--yel);padding:1px 6px;cursor:help}
@@ -124,7 +125,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
     <div class="card">
       <div class="stitle">Biomarkers</div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping "Anti-" and word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise.</div>
+      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it.</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
         <button class="btn-ghost" id="clearBtn">Clear</button>
@@ -139,6 +140,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
     <div class="card" id="chartCard" style="display:none">
       <span class="captag">Figure 1</span>
       <div class="stitle">Cleared products by biomarker, ranked fewest first</div>
+      <div class="hint" style="margin:-6px 0 12px">Click a bar to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA's public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.</div>
       <div class="chartwrap"><canvas id="chart"></canvas></div>
     </div>
 
@@ -249,6 +251,13 @@ function stripAntiPrefix(term) {
   return term.replace(/^anti[-\s]+/i, '');
 }
 
+// "Anti-" changes what a biomarker means (an antibody test vs. the antigen/analyte itself),
+// so when the entered term has it, every broadened tier below must still require the word
+// "anti" as its own token — it's just no longer pinned adjacent to the rest of the phrase.
+function hasAntiPrefix(term) {
+  return /^anti[-\s]/i.test(term.trim());
+}
+
 function stripIsotypeSuffix(term) {
   return term.replace(/\s+Ig[AGME][1-4]?$/i, '').trim();
 }
@@ -257,21 +266,28 @@ function splitTokens(term) {
   return term.split(/[\s/]+/).map(s => s.trim()).filter(Boolean);
 }
 
-// Tier 2: same words, "Anti-" dropped, adjacency/order no longer required (still requires
-// every word, including the Ig-class, to appear somewhere in the same field).
+function withAnti(tokens, requireAnti) {
+  return requireAnti ? ['anti', ...tokens] : tokens;
+}
+
+// Tier 2: same words, adjacency/order no longer required (still requires every word,
+// including "anti" when present and the Ig-class, to appear somewhere in the same field).
 function buildBroadExpr(term) {
-  const tokens = splitTokens(stripAntiPrefix(term));
+  const tokens = withAnti(splitTokens(stripAntiPrefix(term)), hasAntiPrefix(term));
   if (tokens.length < 2) return null;
   return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
 }
 
 // Tier 3: also drop the Ig-class suffix — many cleared assays don't state the isotype in
 // their device name even though they target a specific one. Recall goes up but this can no
-// longer confirm the isotype itself matched, so callers must label it as such.
+// longer confirm the isotype itself matched, so callers must label it as such. "anti" is
+// still required when the term had it — that word is what separates an antibody test from
+// the antigen/analyte itself, so dropping it would change what a match means.
 function buildAntigenExpr(term) {
+  const requireAnti = hasAntiPrefix(term);
   const antigen = stripAntiPrefix(stripIsotypeSuffix(term));
   if (!antigen) return null;
-  const tokens = splitTokens(antigen);
+  const tokens = withAnti(splitTokens(antigen), requireAnti);
   if (tokens.length > 1) return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
   return buildExactExpr(antigen);
 }
@@ -365,12 +381,12 @@ function splitExpansionTokens(phrase) {
 // (e.g. "GADA" doesn't occur in FDA text, but "Glutamic Acid Decarboxylase" does). A "/"
 // in the full name marks alternate synonyms (e.g. "Ro52 / TRIM21") — those are OR'd, while
 // the words within each alternative are AND'd.
-function buildExpansionExpr(expansion) {
+function buildExpansionExpr(expansion, requireAnti) {
   if (!expansion) return null;
   const phrase = expansion.search || expansion.full;
   const groups = phrase.split('/').map(splitExpansionTokens).filter(g => g.length);
   if (!groups.length) return null;
-  const groupClause = (f, tokens) => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')';
+  const groupClause = (f, tokens) => '(' + withAnti(tokens, requireAnti).map(tok => `${f}:"${tok}"`).join(' AND ') + ')';
   return fieldOr(f => '(' + groups.map(tokens => groupClause(f, tokens)).join(' OR ') + ')');
 }
 
@@ -427,7 +443,7 @@ async function fetchBiomarker(term, apiKey) {
   }
 
   if (expansion) {
-    const expansionExpr = buildExpansionExpr(expansion);
+    const expansionExpr = buildExpansionExpr(expansion, hasAntiPrefix(searchTerm));
     if (expansionExpr) {
       await sleep(150);
       const exp = await runOpenFdaQuery(expansionExpr, apiKey);
@@ -480,7 +496,7 @@ const MATCH_MODE_LABEL = {
   expansion: 'Expanded-name match'
 };
 const MATCH_MODE_TITLE = {
-  broad: 'No exact phrase match — matched on the same words in any order/position (e.g. "Anti-" dropped).',
+  broad: 'No exact phrase match — matched on the same words in any order/position instead (still requires "anti" itself when the term has it).',
   'antigen-only': 'No match including the Ig-class (IgG/IgA/IgM) — matched on the antigen name alone, since many FDA device names omit the isotype. The count may include products that are not isotype-specific.',
   expansion: 'No match on the abbreviation itself — matched by searching its spelled-out full name instead, since some FDA device names use the full term rather than the shorthand.'
 };
@@ -515,6 +531,7 @@ function renderResults() {
     const rank = i + 1;
     const mainRow = document.createElement('tr');
     mainRow.className = 'rowmain';
+    mainRow.dataset.idx = i;
     mainRow.innerHTML = `
       <td class="rankcell">${rank}</td>
       <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}${expansionTag(s.expansion)}${matchModeTag(s.matchMode)}</div></td>
@@ -559,6 +576,8 @@ function renderResults() {
       wrap.classList.toggle('open');
       mainRow.querySelector('.chev').classList.toggle('open');
     });
+    mainRow.addEventListener('mouseenter', () => highlightChartBar(i));
+    mainRow.addEventListener('mouseleave', () => highlightChartBar(null));
   });
 
   errored.forEach(s => {
@@ -579,6 +598,17 @@ Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 Chart.defaults.font.size = 11;
 Chart.defaults.color = '#4A5A68';
 
+// Links the chart back to the results table: hovering a table row highlights the matching
+// bar (both datasets, since a row covers cleared + not-cleared together), and clicking a bar
+// scrolls to and expands the matching row — the two views stay in sync either direction.
+function highlightChartBar(index) {
+  if (!chartRef) return;
+  const elements = index == null ? [] : chartRef.data.datasets.map((_, datasetIndex) => ({ datasetIndex, index }));
+  chartRef.setActiveElements(elements);
+  chartRef.tooltip.setActiveElements(elements, { x: 0, y: 0 });
+  chartRef.update();
+}
+
 function renderChart(valid) {
   $('chartCard').style.display = valid.length ? 'block' : 'none';
   if (!valid.length) return;
@@ -590,13 +620,27 @@ function renderChart(valid) {
       labels: valid.map(s => s.term),
       datasets: [
         { label: 'Cleared (Approved)', data: valid.map(s => s.approved), backgroundColor: '#1B7A4D' },
-        { label: 'Not Cleared', data: valid.map(s => s.notApproved), backgroundColor: '#C0392B' }
+        { label: 'Not Cleared', data: valid.map(s => s.notApproved), backgroundColor: '#DC2626' }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: { x: { stacked: true, grid: { color: 'rgba(10,40,70,.08)' } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(10,40,70,.08)' } } },
-      plugins: { legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } } }
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } },
+        tooltip: { callbacks: { footer: () => 'Click to jump to this row in the table' } }
+      },
+      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const row = document.querySelectorAll('#resultsBody tr.rowmain')[elements[0].index];
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const wrap = row.nextElementSibling.querySelector('.detailwrap');
+        if (wrap && !wrap.classList.contains('open')) row.click();
+        row.classList.add('flash');
+        setTimeout(() => row.classList.remove('flash'), 1000);
+      }
     }
   });
 }
