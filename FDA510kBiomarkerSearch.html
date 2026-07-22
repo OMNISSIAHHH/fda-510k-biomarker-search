@@ -121,7 +121,7 @@ button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;bor
     <div class="card">
       <div class="stitle">Biomarkers</div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field).</div>
+      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …) since openFDA's search rejects them and FDA records use plain ASCII.</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
         <button class="btn-ghost" id="clearBtn">Clear</button>
@@ -208,8 +208,25 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// openFDA's search backend rejects non-ASCII characters outright (HTTP 400 "Search not
+// supported"). FDA device names spell Greek letters out in plain ASCII, so transliterate
+// before querying — this both avoids the crash and matches how the term actually appears.
+const GREEK_TO_LATIN = {
+  'α':'alpha','β':'beta','γ':'gamma','δ':'delta','ε':'epsilon','ζ':'zeta','η':'eta','θ':'theta',
+  'ι':'iota','κ':'kappa','λ':'lambda','μ':'mu','ν':'nu','ξ':'xi','ο':'omicron','π':'pi','ρ':'rho',
+  'σ':'sigma','ς':'sigma','τ':'tau','υ':'upsilon','φ':'phi','χ':'chi','ψ':'psi','ω':'omega',
+  'Α':'Alpha','Β':'Beta','Γ':'Gamma','Δ':'Delta','Ε':'Epsilon','Ζ':'Zeta','Η':'Eta','Θ':'Theta',
+  'Ι':'Iota','Κ':'Kappa','Λ':'Lambda','Μ':'Mu','Ν':'Nu','Ξ':'Xi','Ο':'Omicron','Π':'Pi','Ρ':'Rho',
+  'Σ':'Sigma','Τ':'Tau','Υ':'Upsilon','Φ':'Phi','Χ':'Chi','Ψ':'Psi','Ω':'Omega'
+};
+
+function toSearchTerm(term) {
+  return term.replace(/[α-ωΑ-Ω]/g, c => GREEK_TO_LATIN[c] || c);
+}
+
 async function fetchBiomarker(term, apiKey) {
-  const expr = `(device_name:"${term}" OR statement_or_summary:"${term}" OR openfda.device_name:"${term}")`;
+  const searchTerm = toSearchTerm(term);
+  const expr = `(device_name:"${searchTerm}" OR statement_or_summary:"${searchTerm}" OR openfda.device_name:"${searchTerm}")`;
   let skip = 0, total = 0;
   const records = [];
   do {
