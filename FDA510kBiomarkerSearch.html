@@ -69,6 +69,7 @@ button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;bor
 .sumtable td{padding:9px 10px;border-bottom:1px solid var(--br)}
 .sumtable tr.rowmain:hover{background:var(--bg2);cursor:pointer}
 .biocell{display:flex;align-items:center;gap:8px;font-weight:700}
+.mmtag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--yel);background:rgba(198,138,0,.14);padding:1px 6px;cursor:help}
 .chev{display:inline-block;transition:transform .15s;color:var(--tx3);font-size:11px}
 .chev.open{transform:rotate(90deg)}
 .badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;letter-spacing:.03em}
@@ -121,7 +122,7 @@ button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;bor
     <div class="card">
       <div class="stitle">Biomarkers</div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …) since openFDA's search rejects them and FDA records use plain ASCII.</div>
+      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping "Anti-" and word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise.</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
         <button class="btn-ghost" id="clearBtn">Clear</button>
@@ -224,9 +225,56 @@ function toSearchTerm(term) {
   return term.replace(/[α-ωΑ-Ω]/g, c => GREEK_TO_LATIN[c] || c);
 }
 
-async function fetchBiomarker(term, apiKey) {
-  const searchTerm = toSearchTerm(term);
-  const expr = `(device_name:"${searchTerm}" OR statement_or_summary:"${searchTerm}" OR openfda.device_name:"${searchTerm}")`;
+// openFDA's free-text fields don't always phrase things the way a biomarker is commonly
+// written. Real device names often: drop "Anti-" ("SCL-70 EIA TEST KIT"), reorder or
+// relocate the Ig-class ("EUROIMMUN ANTI-DSDNA-NCX ELISA (IGG)"), or omit the isotype
+// entirely when a kit doesn't distinguish IgA/IgG/IgM. A single exact-phrase search misses
+// all of these and silently under-reports real clearances. So searches run in three tiers,
+// each only attempted if the previous one found nothing, from most to least precise.
+const SEARCH_FIELDS = ['device_name', 'statement_or_summary', 'openfda.device_name'];
+
+function fieldOr(build) {
+  return '(' + SEARCH_FIELDS.map(build).join(' OR ') + ')';
+}
+
+function buildExactExpr(term) {
+  return fieldOr(f => `${f}:"${term}"`);
+}
+
+function stripAntiPrefix(term) {
+  return term.replace(/^anti[-\s]+/i, '');
+}
+
+function stripIsotypeSuffix(term) {
+  return term.replace(/\s+Ig[AGME][1-4]?$/i, '').trim();
+}
+
+function splitTokens(term) {
+  return term.split(/[\s/]+/).map(s => s.trim()).filter(Boolean);
+}
+
+// Tier 2: same words, "Anti-" dropped, adjacency/order no longer required (still requires
+// every word, including the Ig-class, to appear somewhere in the same field).
+function buildBroadExpr(term) {
+  const tokens = splitTokens(stripAntiPrefix(term));
+  if (tokens.length < 2) return null;
+  return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
+}
+
+// Tier 3: also drop the Ig-class suffix — many cleared assays don't state the isotype in
+// their device name even though they target a specific one. Recall goes up but this can no
+// longer confirm the isotype itself matched, so callers must label it as such.
+function buildAntigenExpr(term) {
+  const antigen = stripAntiPrefix(stripIsotypeSuffix(term));
+  if (!antigen) return null;
+  const tokens = splitTokens(antigen);
+  if (tokens.length > 1) return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
+  return buildExactExpr(antigen);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runOpenFdaQuery(expr, apiKey) {
   let skip = 0, total = 0;
   const records = [];
   do {
@@ -255,7 +303,28 @@ async function fetchBiomarker(term, apiKey) {
   return { total, records };
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function fetchBiomarker(term, apiKey) {
+  const searchTerm = toSearchTerm(term);
+
+  const exact = await runOpenFdaQuery(buildExactExpr(searchTerm), apiKey);
+  if (exact.total > 0) return { ...exact, matchMode: 'exact' };
+
+  const broadExpr = buildBroadExpr(searchTerm);
+  if (broadExpr) {
+    await sleep(150);
+    const broad = await runOpenFdaQuery(broadExpr, apiKey);
+    if (broad.total > 0) return { ...broad, matchMode: 'broad' };
+  }
+
+  const antigenExpr = buildAntigenExpr(searchTerm);
+  if (antigenExpr && antigenExpr !== buildExactExpr(searchTerm)) {
+    await sleep(150);
+    const antigen = await runOpenFdaQuery(antigenExpr, apiKey);
+    if (antigen.total > 0) return { ...antigen, matchMode: 'antigen-only' };
+  }
+
+  return { ...exact, matchMode: 'exact' };
+}
 
 async function runSearch() {
   const terms = parseTerms($('biomarkers').value);
@@ -274,10 +343,10 @@ async function runSearch() {
     $('progressTxt').textContent = `Searching ${i + 1} of ${terms.length}: ${term}`;
     $('pbarFill').style.width = `${Math.round((i / terms.length) * 100)}%`;
     try {
-      const { total, records } = await fetchBiomarker(term, apiKey);
+      const { total, records, matchMode } = await fetchBiomarker(term, apiKey);
       const approved = records.filter(r => classify(r.decision_description) === 'se').length;
       const notApproved = records.filter(r => classify(r.decision_description) === 'nse').length;
-      state.push({ term, total, approved, notApproved, records, error: null });
+      state.push({ term, total, approved, notApproved, records, matchMode, error: null });
     } catch (e) {
       state.push({ term, total: 0, approved: 0, notApproved: 0, records: [], error: e.message || String(e) });
     }
@@ -292,6 +361,20 @@ async function runSearch() {
 }
 
 const HIGH_APPROVAL_THRESHOLD = 10;
+
+const MATCH_MODE_LABEL = {
+  broad: 'Broad match',
+  'antigen-only': 'Antigen-only match'
+};
+const MATCH_MODE_TITLE = {
+  broad: 'No exact phrase match — matched on the same words in any order/position (e.g. "Anti-" dropped).',
+  'antigen-only': 'No match including the Ig-class (IgG/IgA/IgM) — matched on the antigen name alone, since many FDA device names omit the isotype. The count may include products that are not isotype-specific.'
+};
+
+function matchModeTag(mode) {
+  if (!mode || mode === 'exact') return '';
+  return ` <span class="mmtag" title="${escapeHtml(MATCH_MODE_TITLE[mode] || '')}">${MATCH_MODE_LABEL[mode] || mode}</span>`;
+}
 
 function getRanked() {
   // Fewest FDA-cleared products first: less competition, more opportunity.
@@ -315,7 +398,7 @@ function renderResults() {
     mainRow.className = 'rowmain';
     mainRow.innerHTML = `
       <td class="rankcell">${rank}</td>
-      <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}</div></td>
+      <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}${matchModeTag(s.matchMode)}</div></td>
       <td>${s.total}</td>
       <td><span class="badge ${s.approved >= HIGH_APPROVAL_THRESHOLD ? 'high' : 'low'}">${s.approved}</span></td>
       <td>${s.notApproved}</td>
@@ -329,6 +412,8 @@ function renderResults() {
     if (s.records.length) {
       const shownNote = s.records.length < s.total
         ? `<div class="dnote">Showing ${s.records.length} of ${s.total} total submissions (capped).</div>` : '';
+      const modeNote = (s.matchMode && s.matchMode !== 'exact')
+        ? `<div class="dnote">${escapeHtml(MATCH_MODE_TITLE[s.matchMode] || '')}</div>` : '';
       const rows = s.records.map(r => `
         <tr>
           <td>${escapeHtml(r.device_name || '—')}</td>
@@ -341,7 +426,7 @@ function renderResults() {
         <table class="dtable">
           <thead><tr><th>Device Name</th><th>Submitted By</th><th>Decision</th><th>Approve Date</th><th>Detail</th></tr></thead>
           <tbody>${rows}</tbody>
-        </table>${shownNote}`;
+        </table>${shownNote}${modeNote}`;
     } else {
       wrap.innerHTML = `<div class="dnote">No matching 510(k) submissions found.</div>`;
     }
@@ -405,6 +490,7 @@ $('exportBtn').addEventListener('click', () => {
       'Total Submissions': s.total,
       'Cleared (Approved)': s.approved,
       'Not Cleared': s.notApproved,
+      'Match Type': MATCH_MODE_LABEL[s.matchMode] || 'Exact match',
       Error: ''
     })),
     ...errored.map(s => ({
@@ -413,6 +499,7 @@ $('exportBtn').addEventListener('click', () => {
       'Total Submissions': '',
       'Cleared (Approved)': '',
       'Not Cleared': '',
+      'Match Type': '',
       Error: s.error
     }))
   ];
