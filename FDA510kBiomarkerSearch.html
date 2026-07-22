@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDA 510(k) Biomarker Search</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fff;--bg2:#F2F5F7;--bg3:#E3E9ED;
+  --tx:#0F1E2B;--tx2:#3D5468;--tx3:#7C93A3;
+  --br:rgba(0,0,0,.14);--br2:rgba(0,0,0,.45);
+  --font:'Barlow','Helvetica Neue',Arial,sans-serif;
+  --fc:'Barlow Condensed','Arial Narrow',Arial,sans-serif;
+  --acc:#0B6FA8;--acc2:#0D8A5F;--red:#C0362C;--yel:#C68A00;--bk:#0C2233;
+}
+@media(prefers-color-scheme:dark){
+  :root{--bg:#0E1A24;--bg2:#152531;--bg3:#1B2E3B;--tx:#E7EEF3;--tx2:#8FA6B6;--tx3:#4F6576;--br:rgba(255,255,255,.12);--br2:rgba(255,255,255,.4)}
+}
+html,body{height:100%;font-family:var(--font);background:var(--bg3);color:var(--tx);font-size:15px;line-height:1.5}
+.app{max-width:1080px;margin:0 auto;min-height:100vh;background:var(--bg3);padding:0 0 60px}
+
+.hdr{background:var(--bk);position:sticky;top:0;z-index:10}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;padding:16px 22px}
+.hdr-title{font-family:var(--fc);font-size:22px;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.hdr-sub{font-size:11px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.gear{background:none;border:1px solid rgba(255,255,255,.2);cursor:pointer;font-size:15px;color:rgba(255,255,255,.55);padding:5px 8px;line-height:1;transition:all .15s}
+.gear:hover{color:#fff;border-color:rgba(255,255,255,.5)}
+.spanel{display:none;background:#0a1a26;border-top:1px solid rgba(255,255,255,.08);padding:12px 22px}
+.spanel.open{display:block}
+.srow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sinfo{font-size:12px;color:rgba(255,255,255,.45);flex:1;min-width:220px}
+.sinfo a{color:rgba(255,255,255,.7)}
+.skey{font-size:12px;padding:6px 10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.2);color:#fff;font-family:var(--font);width:260px}
+.skey::placeholder{color:rgba(255,255,255,.35)}
+
+.content{padding:22px}
+.card{background:var(--bg);border:1px solid var(--br2);padding:18px 20px;margin-bottom:16px}
+.stitle{font-family:var(--fc);font-size:13px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.1em;margin:0 0 12px;padding-left:10px;border-left:4px solid var(--acc)}
+
+textarea#biomarkers{width:100%;min-height:96px;resize:vertical;padding:10px 12px;border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-family:var(--font);font-size:14px}
+.hint{font-size:11px;color:var(--tx3);margin-top:6px}
+.actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+button{font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;border:none;padding:10px 18px;text-transform:uppercase;letter-spacing:.05em;transition:all .15s}
+.btn-primary{background:var(--acc);color:#fff}
+.btn-primary:hover{background:#095a86}
+.btn-primary:disabled{background:var(--tx3);cursor:not-allowed}
+.btn-ghost{background:transparent;border:1px solid var(--br2);color:var(--tx2)}
+.btn-ghost:hover{border-color:var(--acc);color:var(--acc)}
+.btn-export{background:var(--acc2);color:#fff}
+.btn-export:hover{background:#096c49}
+.btn-export:disabled{background:var(--tx3);cursor:not-allowed}
+
+.progress{margin-top:14px;font-size:12px;color:var(--tx2)}
+.pbar{height:5px;background:var(--bg2);margin-top:6px;overflow:hidden}
+.pbar-fill{height:100%;background:var(--acc);width:0%;transition:width .2s}
+
+.chartwrap{position:relative;height:280px}
+
+.sumtable{width:100%;border-collapse:collapse;font-size:13.5px}
+.sumtable th{text-align:left;font-size:10.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:2px solid var(--br2)}
+.sumtable td{padding:9px 10px;border-bottom:1px solid var(--br)}
+.sumtable tr.rowmain:hover{background:var(--bg2);cursor:pointer}
+.biocell{display:flex;align-items:center;gap:8px;font-weight:700}
+.chev{display:inline-block;transition:transform .15s;color:var(--tx3);font-size:11px}
+.chev.open{transform:rotate(90deg)}
+.badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;letter-spacing:.03em}
+.badge.ok{background:rgba(13,138,95,.14);color:var(--acc2)}
+.badge.zero{background:rgba(124,147,163,.14);color:var(--tx3)}
+.badge.err{background:rgba(192,54,44,.14);color:var(--red)}
+.detailrow td{padding:0;border-bottom:1px solid var(--br)}
+.detailwrap{display:none;padding:6px 10px 14px 34px;background:var(--bg2)}
+.detailwrap.open{display:block}
+.dtable{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--bg)}
+.dtable th{text-align:left;font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--br2)}
+.dtable td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--tx2)}
+.dtable tr:last-child td{border-bottom:none}
+.dtable a{color:var(--acc);text-decoration:none}
+.dtable a:hover{text-decoration:underline}
+.dnote{font-size:11px;color:var(--tx3);padding:8px 8px 2px}
+.decl{font-size:11px;font-weight:700;padding:1px 7px}
+.decl.se{background:rgba(13,138,95,.14);color:var(--acc2)}
+.decl.nse{background:rgba(192,54,44,.14);color:var(--red)}
+.decl.other{background:rgba(124,147,163,.14);color:var(--tx3)}
+
+.empty{padding:30px;text-align:center;color:var(--tx3);font-size:13px}
+.errline{color:var(--red);font-size:12px;margin-top:4px}
+::-webkit-scrollbar{height:8px;width:8px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="hdr-top">
+      <div>
+        <div class="hdr-title"><i class="ti ti-dna-2"></i> FDA 510(k) Biomarker Search</div>
+        <div class="hdr-sub">openFDA Device Clearance Lookup</div>
+      </div>
+      <div class="hdr-right">
+        <button class="gear" id="gearBtn" title="Settings"><i class="ti ti-settings"></i></button>
+      </div>
+    </div>
+    <div class="spanel" id="spanel">
+      <div class="srow">
+        <div class="sinfo">Uses the public <a href="https://open.fda.gov/apis/device/510k/" target="_blank" rel="noopener">openFDA device 510(k) API</a>. No key: 1,000 requests/day. Add a free key for 120,000/day.</div>
+        <input class="skey" id="apiKey" placeholder="openFDA API key (optional)">
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="card">
+      <div class="stitle">Biomarkers</div>
+      <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
+      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field).</div>
+      <div class="actions">
+        <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
+        <button class="btn-ghost" id="clearBtn">Clear</button>
+        <button class="btn-export" id="exportBtn" disabled><i class="ti ti-file-spreadsheet"></i> Export to Excel</button>
+      </div>
+      <div class="progress" id="progressWrap" style="display:none">
+        <span id="progressTxt"></span>
+        <div class="pbar"><div class="pbar-fill" id="pbarFill"></div></div>
+      </div>
+    </div>
+
+    <div class="card" id="chartCard" style="display:none">
+      <div class="stitle">Cleared Products by Biomarker</div>
+      <div class="chartwrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="card" id="resultsCard" style="display:none">
+      <div class="stitle">Results</div>
+      <table class="sumtable">
+        <thead><tr>
+          <th style="width:34%">Biomarker</th>
+          <th>Total Submissions</th>
+          <th>Cleared (Approved)</th>
+          <th>Not Cleared</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="empty" id="emptyState">Enter biomarkers above and click Search.</div>
+  </div>
+</div>
+
+<script>
+const OPENFDA_BASE = 'https://api.fda.gov/device/510k.json';
+const DETAIL_BASE = 'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfPMN/pmn.cfm?ID=';
+const PAGE_LIMIT = 100;
+const MAX_RECORDS = 300; // cap per biomarker to bound request volume
+
+let state = []; // [{term, total, approved, notApproved, records, error}]
+let chartRef = null;
+
+const $ = (id) => document.getElementById(id);
+
+$('gearBtn').addEventListener('click', () => $('spanel').classList.toggle('open'));
+
+const savedKey = localStorage.getItem('openfda_api_key');
+if (savedKey) $('apiKey').value = savedKey;
+$('apiKey').addEventListener('change', (e) => localStorage.setItem('openfda_api_key', e.target.value.trim()));
+
+const savedTerms = localStorage.getItem('biomarker_terms');
+if (savedTerms) $('biomarkers').value = savedTerms;
+
+$('clearBtn').addEventListener('click', () => {
+  $('biomarkers').value = '';
+  localStorage.removeItem('biomarker_terms');
+});
+
+function parseTerms(raw) {
+  return [...new Set(
+    raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+  )];
+}
+
+function classify(decisionDescription) {
+  const d = (decisionDescription || '').toLowerCase();
+  if (!d) return 'other';
+  if (d.includes('not substantially equivalent')) return 'nse';
+  if (d.includes('substantially equivalent')) return 'se';
+  return 'other';
+}
+
+function declBadge(decisionDescription) {
+  const cls = classify(decisionDescription);
+  const label = decisionDescription || '—';
+  const map = { se: 'se', nse: 'nse', other: 'other' };
+  return `<span class="decl ${map[cls]}">${escapeHtml(label)}</span>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function fetchBiomarker(term, apiKey) {
+  const expr = `(device_name:"${term}" OR statement_or_summary:"${term}" OR openfda.device_name:"${term}")`;
+  let skip = 0, total = 0;
+  const records = [];
+  do {
+    const params = new URLSearchParams({ search: expr, limit: String(PAGE_LIMIT), skip: String(skip) });
+    if (apiKey) params.set('api_key', apiKey);
+    const res = await fetch(`${OPENFDA_BASE}?${params.toString()}`);
+    if (res.status === 404) { total = 0; break; }
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { const body = await res.json(); if (body?.error?.message) msg = body.error.message; } catch {}
+      throw new Error(msg);
+    }
+    const data = await res.json();
+    total = data.meta?.results?.total ?? 0;
+    records.push(...(data.results || []));
+    skip += PAGE_LIMIT;
+  } while (skip < total && skip < MAX_RECORDS);
+  return { total, records };
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runSearch() {
+  const terms = parseTerms($('biomarkers').value);
+  if (!terms.length) { alert('Enter at least one biomarker.'); return; }
+  localStorage.setItem('biomarker_terms', $('biomarkers').value);
+
+  const apiKey = $('apiKey').value.trim();
+  $('searchBtn').disabled = true;
+  $('exportBtn').disabled = true;
+  $('emptyState').style.display = 'none';
+  $('progressWrap').style.display = 'block';
+
+  state = [];
+  for (let i = 0; i < terms.length; i++) {
+    const term = terms[i];
+    $('progressTxt').textContent = `Searching ${i + 1} of ${terms.length}: ${term}`;
+    $('pbarFill').style.width = `${Math.round((i / terms.length) * 100)}%`;
+    try {
+      const { total, records } = await fetchBiomarker(term, apiKey);
+      const approved = records.filter(r => classify(r.decision_description) === 'se').length;
+      const notApproved = records.filter(r => classify(r.decision_description) === 'nse').length;
+      state.push({ term, total, approved, notApproved, records, error: null });
+    } catch (e) {
+      state.push({ term, total: 0, approved: 0, notApproved: 0, records: [], error: e.message || String(e) });
+    }
+    if (i < terms.length - 1) await sleep(250);
+  }
+
+  $('pbarFill').style.width = '100%';
+  $('progressTxt').textContent = `Done — ${terms.length} biomarker(s) searched.`;
+  $('searchBtn').disabled = false;
+  $('exportBtn').disabled = false;
+  renderResults();
+}
+
+function renderResults() {
+  $('resultsCard').style.display = 'block';
+  const tbody = $('resultsBody');
+  tbody.innerHTML = '';
+
+  state.forEach((s, idx) => {
+    const mainRow = document.createElement('tr');
+    mainRow.className = 'rowmain';
+    mainRow.dataset.idx = idx;
+    if (s.error) {
+      mainRow.innerHTML = `
+        <td><div class="biocell">${escapeHtml(s.term)}</div><div class="errline">${escapeHtml(s.error)}</div></td>
+        <td colspan="3"><span class="badge err">Search failed</span></td>
+        <td></td>`;
+    } else {
+      mainRow.innerHTML = `
+        <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}</div></td>
+        <td>${s.total}</td>
+        <td><span class="badge ${s.approved ? 'ok' : 'zero'}">${s.approved}</span></td>
+        <td>${s.notApproved}</td>
+        <td></td>`;
+    }
+    tbody.appendChild(mainRow);
+
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'detailrow';
+    const wrap = document.createElement('div');
+    wrap.className = 'detailwrap';
+    if (!s.error) {
+      if (s.records.length) {
+        const shownNote = s.records.length < s.total
+          ? `<div class="dnote">Showing ${s.records.length} of ${s.total} total submissions (capped).</div>` : '';
+        const rows = s.records.map(r => `
+          <tr>
+            <td>${escapeHtml(r.device_name || '—')}</td>
+            <td>${escapeHtml(r.applicant || '—')}</td>
+            <td>${declBadge(r.decision_description)}</td>
+            <td>${escapeHtml(r.decision_date || '—')}</td>
+            <td><a href="${DETAIL_BASE}${encodeURIComponent(r.k_number || '')}" target="_blank" rel="noopener">${escapeHtml(r.k_number || '')} ↗</a></td>
+          </tr>`).join('');
+        wrap.innerHTML = `
+          <table class="dtable">
+            <thead><tr><th>Device Name</th><th>Submitted By</th><th>Decision</th><th>Approve Date</th><th>Detail</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>${shownNote}`;
+      } else {
+        wrap.innerHTML = `<div class="dnote">No matching 510(k) submissions found.</div>`;
+      }
+    }
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.appendChild(wrap);
+    detailRow.appendChild(td);
+    tbody.appendChild(detailRow);
+
+    if (!s.error) {
+      mainRow.addEventListener('click', () => {
+        wrap.classList.toggle('open');
+        mainRow.querySelector('.chev').classList.toggle('open');
+      });
+    }
+  });
+
+  renderChart();
+}
+
+function renderChart() {
+  const valid = state.filter(s => !s.error);
+  $('chartCard').style.display = valid.length ? 'block' : 'none';
+  if (!valid.length) return;
+  const ctx = document.getElementById('chart');
+  if (chartRef) { chartRef.destroy(); chartRef = null; }
+  chartRef = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: valid.map(s => s.term),
+      datasets: [
+        { label: 'Cleared (Approved)', data: valid.map(s => s.approved), backgroundColor: '#0D8A5F' },
+        { label: 'Not Cleared', data: valid.map(s => s.notApproved), backgroundColor: '#C0362C' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+}
+
+$('searchBtn').addEventListener('click', runSearch);
+
+$('exportBtn').addEventListener('click', () => {
+  if (!state.length) return;
+  const summaryRows = state.map(s => ({
+    Biomarker: s.term,
+    'Total Submissions': s.total,
+    'Cleared (Approved)': s.approved,
+    'Not Cleared': s.notApproved,
+    Error: s.error || ''
+  }));
+  const detailRows = [];
+  state.forEach(s => {
+    s.records.forEach(r => {
+      detailRows.push({
+        Biomarker: s.term,
+        'Device Name': r.device_name || '',
+        'Submitted By': r.applicant || '',
+        Decision: r.decision_description || '',
+        'Approve Date': r.decision_date || '',
+        'K Number': r.k_number || '',
+        'Detail Link': r.k_number ? `${DETAIL_BASE}${r.k_number}` : ''
+      });
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Details');
+  const ts = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `FDA_510k_Biomarker_Search_${ts}.xlsx`);
+});
+</script>
+</body>
+</html>
