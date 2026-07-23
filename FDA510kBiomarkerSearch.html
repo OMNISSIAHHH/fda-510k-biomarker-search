@@ -140,7 +140,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
     <div class="card" id="chartCard" style="display:none">
       <span class="captag">Figure 1</span>
       <div class="stitle">Cleared products by biomarker, ranked fewest first</div>
-      <div class="hint" style="margin:-6px 0 12px">Click a bar to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA's public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.</div>
+      <div class="hint" style="margin:-6px 0 12px">Click a bar or its name on the axis to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA's public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.</div>
       <div class="chartwrap"><canvas id="chart"></canvas></div>
     </div>
 
@@ -609,6 +609,19 @@ function highlightChartBar(index) {
   chartRef.update();
 }
 
+// Chart.js only hit-tests bars for onClick/onHover elements, not x-axis tick labels. This
+// resolves a click/hover below the plot area (in the label row) back to a category index,
+// so clicking a biomarker's name works the same as clicking its bar.
+function indexFromLabelZone(evt) {
+  if (!chartRef) return null;
+  const area = chartRef.chartArea;
+  if (evt.y == null || evt.y < area.bottom || evt.x < area.left || evt.x > area.right) return null;
+  const val = chartRef.scales.x.getValueForPixel(evt.x);
+  if (val == null) return null;
+  const idx = Math.round(val);
+  return (idx >= 0 && idx < chartRef.data.labels.length) ? idx : null;
+}
+
 function renderChart(valid) {
   $('chartCard').style.display = valid.length ? 'block' : 'none';
   if (!valid.length) return;
@@ -637,10 +650,13 @@ function renderChart(valid) {
         legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } },
         tooltip: { callbacks: { footer: () => 'Click to jump to this row in the table' } }
       },
-      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = (elements.length || indexFromLabelZone(evt) != null) ? 'pointer' : 'default';
+      },
       onClick: (evt, elements) => {
-        if (!elements.length) return;
-        const row = document.querySelectorAll('#resultsBody tr.rowmain')[elements[0].index];
+        const idx = elements.length ? elements[0].index : indexFromLabelZone(evt);
+        if (idx == null) return;
+        const row = document.querySelectorAll('#resultsBody tr.rowmain')[idx];
         if (!row) return;
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
         const wrap = row.nextElementSibling.querySelector('.detailwrap');
