@@ -137,7 +137,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
         <button class="modetab" id="modeLdt" type="button">LDT</button>
       </div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it.</div>
+      <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it, though not necessarily the literal word "anti": "antibody", "antibodies", "autoantibody", "autoantibodies", and "AB" all count too, since device names use those just as often.</div>
       <div class="hint" id="hintLdt" style="display:none">Terms are matched against the analyte/test name in the NY State Wadsworth Center CLEP "Approved Laboratory Developed Tests" database (any-word match, same as the site's own default). Requires an LDT proxy Worker URL configured in Settings (gear icon).</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
@@ -310,10 +310,18 @@ function stripAntiPrefix(term) {
 }
 
 // "Anti-" changes what a biomarker means (an antibody test vs. the antigen/analyte itself),
-// so when the entered term has it, every broadened tier below must still require the word
-// "anti" as its own token — it's just no longer pinned adjacent to the rest of the phrase.
+// so when the entered term has it, every broadened tier below must still require one of
+// these synonym words as its own token — it's just no longer pinned adjacent to the rest of
+// the phrase, and no longer limited to the literal word "anti" (device names just as often
+// say "antibody", "antibodies", "autoantibody"/"autoantibodies", or plain "AB").
 function hasAntiPrefix(term) {
   return /^anti[-\s]/i.test(term.trim());
+}
+
+const ANTI_SYNONYMS = ['anti', 'antibody', 'antibodies', 'autoantibody', 'autoantibodies', 'ab'];
+
+function antiSynonymClause(field) {
+  return '(' + ANTI_SYNONYMS.map(w => `${field}:"${w}"`).join(' OR ') + ')';
 }
 
 function stripIsotypeSuffix(term) {
@@ -324,29 +332,37 @@ function splitTokens(term) {
   return term.split(/[\s/]+/).map(s => s.trim()).filter(Boolean);
 }
 
-function withAnti(tokens, requireAnti) {
-  return requireAnti ? ['anti', ...tokens] : tokens;
+// Builds one field's clause: every token required, plus (when requireAnti) one of the
+// anti/antibody synonyms required too — as its own OR-group, not a single fixed word.
+function tokenClause(field, tokens, requireAnti) {
+  const parts = tokens.map(tok => `${field}:"${tok}"`);
+  if (requireAnti) parts.push(antiSynonymClause(field));
+  return '(' + parts.join(' AND ') + ')';
 }
 
 // Tier 2: same words, adjacency/order no longer required (still requires every word,
-// including "anti" when present and the Ig-class, to appear somewhere in the same field).
+// including an anti/antibody synonym when the term implies one, to appear somewhere in the
+// same field).
 function buildBroadExpr(term) {
-  const tokens = withAnti(splitTokens(stripAntiPrefix(term)), hasAntiPrefix(term));
-  if (tokens.length < 2) return null;
-  return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
+  const requireAnti = hasAntiPrefix(term);
+  const tokens = splitTokens(stripAntiPrefix(term));
+  if (!tokens.length) return null;
+  if (!requireAnti && tokens.length < 2) return null;
+  return fieldOr(f => tokenClause(f, tokens, requireAnti));
 }
 
 // Tier 3: also drop the Ig-class suffix — many cleared assays don't state the isotype in
 // their device name even though they target a specific one. Recall goes up but this can no
-// longer confirm the isotype itself matched, so callers must label it as such. "anti" is
-// still required when the term had it — that word is what separates an antibody test from
-// the antigen/analyte itself, so dropping it would change what a match means.
+// longer confirm the isotype itself matched, so callers must label it as such. An
+// anti/antibody synonym is still required when the term implies one — that's what separates
+// an antibody test from the antigen/analyte itself, so dropping it would change what a match
+// means.
 function buildAntigenExpr(term) {
   const requireAnti = hasAntiPrefix(term);
   const antigen = stripAntiPrefix(stripIsotypeSuffix(term));
   if (!antigen) return null;
-  const tokens = withAnti(splitTokens(antigen), requireAnti);
-  if (tokens.length > 1) return fieldOr(f => '(' + tokens.map(tok => `${f}:"${tok}"`).join(' AND ') + ')');
+  const tokens = splitTokens(antigen);
+  if (tokens.length > 1 || requireAnti) return fieldOr(f => tokenClause(f, tokens, requireAnti));
   return buildExactExpr(antigen);
 }
 
@@ -444,8 +460,7 @@ function buildExpansionExpr(expansion, requireAnti) {
   const phrase = expansion.search || expansion.full;
   const groups = phrase.split('/').map(splitExpansionTokens).filter(g => g.length);
   if (!groups.length) return null;
-  const groupClause = (f, tokens) => '(' + withAnti(tokens, requireAnti).map(tok => `${f}:"${tok}"`).join(' AND ') + ')';
-  return fieldOr(f => '(' + groups.map(tokens => groupClause(f, tokens)).join(' OR ') + ')');
+  return fieldOr(f => '(' + groups.map(tokens => tokenClause(f, tokens, requireAnti)).join(' OR ') + ')');
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
