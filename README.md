@@ -1,6 +1,6 @@
 # FDA 510(k) Biomarker Search
 
-A single-file, no-build-step web app for looking up FDA 510(k) device clearances by biomarker. It queries the public [openFDA device 510(k) API](https://open.fda.gov/apis/device/510k/) directly from the browser, visualizes the results, and can export everything to Excel.
+A single-file, no-build-step web app for looking up FDA 510(k) device clearances by biomarker. It queries the public [openFDA device 510(k) API](https://open.fda.gov/apis/device/510k/) directly from the browser, visualizes the results, and can export everything to Excel. It can also search NY State's Laboratory Developed Test (LDT) database as a second, independent search mode — see [LDT search](#ldt-search-ny-state) below.
 
 ## Usage
 
@@ -25,6 +25,16 @@ A single-file, no-build-step web app for looking up FDA 510(k) device clearances
 ### Optional: API key
 
 By default, requests are unauthenticated and limited to 1,000 requests/day (shared across your network). Click the gear icon in the header to add a free [openFDA API key](https://open.fda.gov/apis/authentication/), which raises the limit to 120,000 requests/day. The key is stored only in your browser's local storage.
+
+## LDT search (NY State)
+
+Switch to the **LDT (NY State)** tab (next to **FDA 510(k)**, above the biomarker box) to search NY State Wadsworth Center's CLEP "Approved Laboratory Developed Tests" database instead — useful for seeing whether a biomarker with no FDA clearance is nonetheless being offered as a lab-developed test.
+
+This requires a one-time setup step: that site has no CORS support, so a browser can't read its results directly from this tool's JavaScript. A small proxy Worker bridges the gap — see [`worker/README.md`](worker/README.md) for the ~5-minute, no-CLI deploy steps (paste code into the Cloudflare dashboard, no local Node/wrangler needed). Once deployed, paste the Worker's URL into **Settings** (gear icon) → **LDT proxy Worker URL**.
+
+After an **FDA 510(k)** search, if any biomarkers show 0 cleared products, a button appears offering to check all of them against the LDT database in one pass — a quick way to see whether "no FDA clearance" actually means "no test exists" or just "it's offered as an LDT instead."
+
+LDT results show the same key fields as the NY tool itself: facility, matched analyte name, specimen type, permit category, approval status, and a link to the full record.
 
 ## Notes on the data
 

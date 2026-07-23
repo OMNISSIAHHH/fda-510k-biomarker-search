@@ -44,6 +44,10 @@ html,body{height:100%;font-family:var(--font);background:var(--bg3);color:var(--
 .captag{display:block;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--acc);text-transform:uppercase;letter-spacing:.12em;margin-bottom:3px}
 .stitle{font-family:var(--font);font-size:16px;font-weight:700;color:var(--tx);margin:0 0 13px;padding-bottom:9px;border-bottom:2px solid var(--acc)}
 
+.modetabs{display:flex;gap:8px;margin-bottom:10px}
+.modetab{font-family:var(--font);font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:3px;border:1px solid var(--br2);background:transparent;color:var(--tx2);cursor:pointer;transition:all .15s}
+.modetab:hover{border-color:var(--acc);color:var(--acc)}
+.modetab.active{background:var(--acc);border-color:var(--acc);color:#fff}
 textarea#biomarkers{width:100%;min-height:96px;resize:vertical;padding:10px 12px;border:1px solid var(--br2);border-radius:3px;background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:13.5px}
 .hint{font-size:12px;color:var(--tx2);margin-top:8px;line-height:1.55}
 .actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
@@ -118,14 +122,23 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
         <div class="sinfo">Uses the public <a href="https://open.fda.gov/apis/device/510k/" target="_blank" rel="noopener">openFDA device 510(k) API</a>. No key: 1,000 requests/day. Add a free key for 120,000/day.</div>
         <input class="skey" id="apiKey" placeholder="openFDA API key (optional)">
       </div>
+      <div class="srow" style="margin-top:8px">
+        <div class="sinfo">LDT search calls a small proxy Worker (NY's LDT site has no CORS support, so this tool can't reach it directly) — see <code>worker/ldt-proxy.js</code> in the repo for the code and deploy instructions.</div>
+        <input class="skey" id="ldtProxyUrl" placeholder="LDT proxy Worker URL">
+      </div>
     </div>
   </div>
 
   <div class="content">
     <div class="card">
       <div class="stitle">Biomarkers</div>
+      <div class="modetabs">
+        <button class="modetab active" id="modeFda" type="button">FDA 510(k)</button>
+        <button class="modetab" id="modeLdt" type="button">LDT (NY State)</button>
+      </div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it.</div>
+      <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it.</div>
+      <div class="hint" id="hintLdt" style="display:none">Terms are matched against the analyte/test name in the NY State Wadsworth Center CLEP "Approved Laboratory Developed Tests" database (any-word match, same as the site's own default). Requires an LDT proxy Worker URL configured in Settings (gear icon).</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
         <button class="btn-ghost" id="clearBtn">Clear</button>
@@ -138,18 +151,18 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
     </div>
 
     <div class="card" id="chartCard" style="display:none">
-      <span class="captag">Figure 1</span>
-      <div class="stitle">Cleared products by biomarker, ranked fewest first</div>
-      <div class="hint" style="margin:-6px 0 12px">Click a bar or its name on the axis to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA's public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.</div>
+      <span class="captag" id="chartCaptag">Figure 1</span>
+      <div class="stitle" id="chartTitle">Cleared products by biomarker, ranked fewest first</div>
+      <div class="hint" id="chartHint" style="margin:-6px 0 12px">Click a bar or its name on the axis to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA's public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.</div>
       <div class="chartwrap"><canvas id="chart"></canvas></div>
     </div>
 
     <div class="card" id="resultsCard" style="display:none">
-      <span class="captag">Table 1</span>
-      <div class="stitle">Results, ranked by fewest approvals</div>
-      <div class="hint" style="margin:-6px 0 12px">Rank 1 = fewest FDA-cleared products (least competition / most opportunity). Approval counts in red (≥10) indicate a more saturated space.</div>
+      <span class="captag" id="resultsCaptag">Table 1</span>
+      <div class="stitle" id="resultsTitle">Results, ranked by fewest approvals</div>
+      <div class="hint" id="resultsHint" style="margin:-6px 0 12px">Rank 1 = fewest FDA-cleared products (least competition / most opportunity). Approval counts in red (≥10) indicate a more saturated space.</div>
       <table class="sumtable">
-        <thead><tr>
+        <thead id="resultsHead"><tr>
           <th style="width:44px">Rank</th>
           <th style="width:30%">Biomarker</th>
           <th>Total Submissions</th>
@@ -158,6 +171,26 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
           <th></th>
         </tr></thead>
         <tbody id="resultsBody"></tbody>
+      </table>
+      <div id="crossCheckPrompt" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--br)">
+        <button class="btn-ghost" id="crossCheckBtn" type="button"></button>
+      </div>
+    </div>
+
+    <div class="card" id="crossCard" style="display:none">
+      <span class="captag">Table 2</span>
+      <div class="stitle">LDT cross-check — biomarkers with 0 FDA approvals</div>
+      <div class="hint" style="margin:-6px 0 12px">Same NY State LDT search as above, run automatically for every biomarker that showed 0 cleared FDA products.</div>
+      <table class="sumtable">
+        <thead><tr>
+          <th style="width:44px">Rank</th>
+          <th style="width:30%">Biomarker</th>
+          <th>Total LDT Matches</th>
+          <th>Approved</th>
+          <th>Conditionally Approved</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="crossBody"></tbody>
       </table>
     </div>
 
@@ -182,6 +215,10 @@ const savedKey = localStorage.getItem('openfda_api_key');
 if (savedKey) $('apiKey').value = savedKey;
 $('apiKey').addEventListener('change', (e) => localStorage.setItem('openfda_api_key', e.target.value.trim()));
 
+const savedLdtUrl = localStorage.getItem('ldt_proxy_url');
+if (savedLdtUrl) $('ldtProxyUrl').value = savedLdtUrl;
+$('ldtProxyUrl').addEventListener('change', (e) => localStorage.setItem('ldt_proxy_url', e.target.value.trim().replace(/\/$/, '')));
+
 const savedTerms = localStorage.getItem('biomarker_terms');
 if (savedTerms) $('biomarkers').value = savedTerms;
 
@@ -189,6 +226,27 @@ $('clearBtn').addEventListener('click', () => {
   $('biomarkers').value = '';
   localStorage.removeItem('biomarker_terms');
 });
+
+let searchMode = 'fda'; // 'fda' | 'ldt'
+
+function setSearchMode(mode) {
+  searchMode = mode;
+  $('modeFda').classList.toggle('active', mode === 'fda');
+  $('modeLdt').classList.toggle('active', mode === 'ldt');
+  $('hintFda').style.display = mode === 'fda' ? 'block' : 'none';
+  $('hintLdt').style.display = mode === 'ldt' ? 'block' : 'none';
+  // Switching modes invalidates the currently-displayed results/chart (different shape) —
+  // hide them rather than show stale data under the wrong headers.
+  $('chartCard').style.display = 'none';
+  $('resultsCard').style.display = 'none';
+  $('crossCard').style.display = 'none';
+  $('crossCheckPrompt').style.display = 'none';
+  $('exportBtn').disabled = true;
+  $('emptyState').style.display = 'block';
+}
+
+$('modeFda').addEventListener('click', () => setSearchMode('fda'));
+$('modeLdt').addEventListener('click', () => setSearchMode('ldt'));
 
 function parseTerms(raw) {
   return [...new Set(
@@ -454,7 +512,58 @@ async function fetchBiomarker(term, apiKey) {
   return { ...exact, matchMode: 'exact', expansion };
 }
 
+// --- LDT (NY State CLEP) search ---------------------------------------------------------
+// wadsworth.org has no CORS support, so this calls a small proxy Worker (worker/ldt-proxy.js)
+// that fetches it server-side and returns clean JSON. See that file for the upstream query
+// details (analyte_name_value, "contains any word" matching, etc).
+let ldtState = [];
+
+function getLdtProxyUrl() {
+  return $('ldtProxyUrl').value.trim().replace(/\/$/, '');
+}
+
+// NY's LDT search defaults to "contains any word" across whitespace-separated words in the
+// query. Sending a full FDA-style term like "Anti-CENP-B IgG" as-is means "IgG" alone (a
+// near-universal word across LDT analyte names — it matched 458 of ~11,200 records on its
+// own in testing) dominates the match set, drowning out "CENP-B" entirely. Query the
+// antigen core only (reusing the same strip helpers built for the FDA antigen-only tier)
+// so the match reflects the antigen, not the isotype boilerplate. The isotype (and "Anti-")
+// are still shown in the UI via the original `term` — only the query itself is narrowed.
+function ldtQueryTerm(term) {
+  const searchTerm = toSearchTerm(term);
+  const antigen = stripAntiPrefix(stripIsotypeSuffix(searchTerm)).trim();
+  return antigen || searchTerm;
+}
+
+async function fetchLdtBiomarker(term, proxyUrl) {
+  const params = new URLSearchParams({ q: ldtQueryTerm(term), status: 'All' });
+  let res;
+  try {
+    res = await fetch(`${proxyUrl}?${params.toString()}`);
+  } catch (e) {
+    throw new Error('Network error — could not reach the LDT proxy. Check the Worker URL in Settings and your connection.');
+  }
+  if (!res.ok) {
+    let msg = `LDT proxy returned HTTP ${res.status}`;
+    try { const body = await res.json(); if (body?.error) msg = body.detail ? `${body.error}: ${body.detail}` : body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json(); // { term, total, count, records }
+}
+
+function classifyLdt(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('conditionally')) return 'conditional';
+  if (s.includes('approved')) return 'approved';
+  return 'other';
+}
+
 async function runSearch() {
+  if (searchMode === 'ldt') return runLdtSearch();
+  return runFdaSearch();
+}
+
+async function runFdaSearch() {
   const terms = parseTerms($('biomarkers').value);
   if (!terms.length) { alert('Enter at least one biomarker.'); return; }
   localStorage.setItem('biomarker_terms', $('biomarkers').value);
@@ -463,6 +572,8 @@ async function runSearch() {
   $('searchBtn').disabled = true;
   $('exportBtn').disabled = true;
   $('emptyState').style.display = 'none';
+  $('crossCheckPrompt').style.display = 'none';
+  $('crossCard').style.display = 'none';
   $('progressWrap').style.display = 'block';
 
   state = [];
@@ -486,6 +597,12 @@ async function runSearch() {
   $('searchBtn').disabled = false;
   $('exportBtn').disabled = false;
   renderResults();
+
+  const zeroApproval = state.filter(s => !s.error && s.approved === 0);
+  if (zeroApproval.length) {
+    $('crossCheckBtn').textContent = `Check LDT database for ${zeroApproval.length} biomarker${zeroApproval.length === 1 ? '' : 's'} with 0 FDA approvals`;
+    $('crossCheckPrompt').style.display = 'block';
+  }
 }
 
 const HIGH_APPROVAL_THRESHOLD = 10;
@@ -522,6 +639,20 @@ function getRanked() {
 
 function renderResults() {
   $('resultsCard').style.display = 'block';
+  $('chartCaptag').textContent = 'Figure 1';
+  $('chartTitle').textContent = 'Cleared products by biomarker, ranked fewest first';
+  $('chartHint').innerHTML = 'Click a bar or its name on the axis to jump to that row in the table below; hovering a table row highlights its bar here. "Not Cleared" is normally 0 — openFDA\'s public 510(k) database only publishes cleared devices, not "Not Substantially Equivalent" decisions.';
+  $('resultsCaptag').textContent = 'Table 1';
+  $('resultsTitle').textContent = 'Results, ranked by fewest approvals';
+  $('resultsHint').textContent = 'Rank 1 = fewest FDA-cleared products (least competition / most opportunity). Approval counts in red (≥10) indicate a more saturated space.';
+  $('resultsHead').innerHTML = `<tr>
+    <th style="width:44px">Rank</th>
+    <th style="width:30%">Biomarker</th>
+    <th>Total Submissions</th>
+    <th>Cleared (Approved)</th>
+    <th>Not Cleared</th>
+    <th></th>
+  </tr>`;
   const tbody = $('resultsBody');
   tbody.innerHTML = '';
 
@@ -609,17 +740,48 @@ function highlightChartBar(index) {
   chartRef.update();
 }
 
-// Chart.js only hit-tests bars for onClick/onHover elements, not x-axis tick labels. This
-// resolves a click/hover below the plot area (in the label row) back to a category index,
-// so clicking a biomarker's name works the same as clicking its bar.
-function indexFromLabelZone(evt) {
-  if (!chartRef) return null;
-  const area = chartRef.chartArea;
-  if (evt.y == null || evt.y < area.bottom || evt.x < area.left || evt.x > area.right) return null;
-  const val = chartRef.scales.x.getValueForPixel(evt.x);
-  if (val == null) return null;
-  const idx = Math.round(val);
-  return (idx >= 0 && idx < chartRef.data.labels.length) ? idx : null;
+// Chart.js's onClick/onHover `elements` only contains bars that were directly hit, not
+// x-axis tick labels, and its own 'index' interaction mode (used internally for hover
+// tooltips) is restricted to the plot area too — it won't resolve a point below it either.
+// Labels also rotate once there are enough categories, so a plain "Y below the plot, X
+// within this category's band" rectangle doesn't work (the rotated glyphs no longer sit in
+// an unrotated box). Chart.js exposes each tick label's actual draw geometry via the scale's
+// `_labelItems` (anchor point, rotation, alignment) — transform the click into each label's
+// own local (unrotated) frame and test against its measured text box directly.
+function resolveChartIndex(evt) {
+  if (!chartRef || evt.x == null || evt.y == null) return null;
+  if (chartRef.legend && evt.y >= chartRef.legend.top) return null; // let the legend handle its own clicks
+
+  if (evt.y <= chartRef.chartArea.bottom) {
+    const els = chartRef.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+    return els.length ? els[0].index : null;
+  }
+
+  // Chart.js computes _labelItems during draw() and it can transiently be null between an
+  // update() and its (possibly animation-deferred) draw — which our own hover-highlight code
+  // triggers on every row hover. Force a synchronous draw so it's always fresh here.
+  chartRef.draw();
+  const items = chartRef.scales.x._labelItems;
+  if (!items) return null;
+  const ctx2d = chartRef.ctx;
+  for (let i = 0; i < items.length; i++) {
+    const { label, options, font } = items[i];
+    const { translation, rotation, textAlign } = options;
+    ctx2d.save();
+    ctx2d.font = font.string;
+    const width = ctx2d.measureText(label).width;
+    ctx2d.restore();
+    const height = font.size + 6;
+    const dx = evt.x - translation[0];
+    const dy = evt.y - translation[1];
+    const cos = Math.cos(-rotation), sin = Math.sin(-rotation);
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+    const xMin = textAlign === 'right' ? -width - 4 : textAlign === 'center' ? -width / 2 - 4 : -4;
+    const xMax = textAlign === 'right' ? 4 : textAlign === 'center' ? width / 2 + 4 : width + 4;
+    if (localX >= xMin && localX <= xMax && localY >= -height / 2 && localY <= height / 2) return i;
+  }
+  return null;
 }
 
 function renderChart(valid) {
@@ -650,11 +812,11 @@ function renderChart(valid) {
         legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } },
         tooltip: { callbacks: { footer: () => 'Click to jump to this row in the table' } }
       },
-      onHover: (evt, elements) => {
-        evt.native.target.style.cursor = (elements.length || indexFromLabelZone(evt) != null) ? 'pointer' : 'default';
+      onHover: (evt) => {
+        evt.native.target.style.cursor = resolveChartIndex(evt) != null ? 'pointer' : 'default';
       },
-      onClick: (evt, elements) => {
-        const idx = elements.length ? elements[0].index : indexFromLabelZone(evt);
+      onClick: (evt) => {
+        const idx = resolveChartIndex(evt);
         if (idx == null) return;
         const row = document.querySelectorAll('#resultsBody tr.rowmain')[idx];
         if (!row) return;
@@ -668,9 +830,276 @@ function renderChart(valid) {
   });
 }
 
+// --- LDT rendering ------------------------------------------------------------------
+// Reuses the same #chart/#resultsBody DOM and chart<->table linking (highlightChartBar /
+// resolveChartIndex are already mode-agnostic) as the FDA view above, just with LDT's own
+// data shape and "key information" columns per the NY State tool's own result output.
+
+function getLdtRanked(targetState = ldtState) {
+  const valid = targetState.filter(s => !s.error)
+    .slice()
+    .sort((a, b) => (a.approved + a.conditional) - (b.approved + b.conditional) || a.term.localeCompare(b.term));
+  const errored = targetState.filter(s => s.error);
+  return { valid, errored };
+}
+
+function renderLdtResults(targetState, { tbodyId = 'resultsBody', chartAndCaptions = true } = {}) {
+  const { valid, errored } = getLdtRanked(targetState);
+
+  if (chartAndCaptions) {
+    $('resultsCard').style.display = 'block';
+    $('chartCaptag').textContent = 'Figure 1';
+    $('chartTitle').textContent = 'LDT matches by biomarker, ranked fewest first';
+    $('chartHint').textContent = 'Click a bar or its name on the axis to jump to that row in the table below; hovering a table row highlights its bar here.';
+    $('resultsCaptag').textContent = 'Table 1';
+    $('resultsTitle').textContent = 'LDT results, ranked by fewest matches';
+    $('resultsHint').textContent = 'Rank 1 = fewest matching LDTs in NY State\'s CLEP database (least competition / most opportunity).';
+    $('resultsHead').innerHTML = `<tr>
+      <th style="width:44px">Rank</th>
+      <th style="width:30%">Biomarker</th>
+      <th>Total LDT Matches</th>
+      <th>Approved</th>
+      <th>Conditionally Approved</th>
+      <th></th>
+    </tr>`;
+  }
+
+  const tbody = $(tbodyId);
+  tbody.innerHTML = '';
+
+  valid.forEach((s, i) => {
+    const rank = i + 1;
+    const mainRow = document.createElement('tr');
+    mainRow.className = 'rowmain';
+    mainRow.dataset.idx = i;
+    mainRow.innerHTML = `
+      <td class="rankcell">${rank}</td>
+      <td><div class="biocell"><span class="chev">▸</span>${escapeHtml(s.term)}</div></td>
+      <td>${s.total}</td>
+      <td><span class="badge ${s.approved >= HIGH_APPROVAL_THRESHOLD ? 'high' : 'low'}">${s.approved}</span></td>
+      <td>${s.conditional}</td>
+      <td></td>`;
+    tbody.appendChild(mainRow);
+
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'detailrow';
+    const wrap = document.createElement('div');
+    wrap.className = 'detailwrap';
+    if (s.records.length) {
+      const shownNote = s.records.length < s.total
+        ? `<div class="dnote">Showing ${s.records.length} of ${s.total} total matches (capped).</div>` : '';
+      // Key information only, per the NY tool's own result output — facility, matched
+      // analyte name, specimen type, permit category, status, and a link to the full record.
+      const rows = s.records.map(r => `
+        <tr>
+          <td>${escapeHtml(r.facilityName || '—')}</td>
+          <td>${escapeHtml(r.analyte || '—')}</td>
+          <td>${escapeHtml(r.specimenType || '—')}</td>
+          <td>${escapeHtml(r.permitCategory || '—')}</td>
+          <td>${ldtStatusBadge(r.status)}</td>
+          <td>${r.detailLink ? `<a href="${escapeHtml(r.detailLink)}" target="_blank" rel="noopener">View ↗</a>` : '—'}</td>
+        </tr>`).join('');
+      wrap.innerHTML = `
+        <table class="dtable">
+          <thead><tr><th>Facility</th><th>Analyte</th><th>Specimen Type</th><th>Permit Category</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>${shownNote}`;
+    } else {
+      wrap.innerHTML = `<div class="dnote">No matching LDTs found.</div>`;
+    }
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.appendChild(wrap);
+    detailRow.appendChild(td);
+    tbody.appendChild(detailRow);
+
+    mainRow.addEventListener('click', () => {
+      wrap.classList.toggle('open');
+      mainRow.querySelector('.chev').classList.toggle('open');
+    });
+    if (chartAndCaptions) {
+      mainRow.addEventListener('mouseenter', () => highlightChartBar(i));
+      mainRow.addEventListener('mouseleave', () => highlightChartBar(null));
+    }
+  });
+
+  errored.forEach(s => {
+    const mainRow = document.createElement('tr');
+    mainRow.className = 'rowmain';
+    mainRow.innerHTML = `
+      <td class="rankcell">—</td>
+      <td><div class="biocell">${escapeHtml(s.term)}</div></td>
+      <td colspan="3"><span class="badge err">Search failed</span> <span class="errline">${escapeHtml(s.error)}</span></td>
+      <td></td>`;
+    tbody.appendChild(mainRow);
+  });
+
+  if (chartAndCaptions) renderLdtChart(valid);
+  return { valid, errored };
+}
+
+function ldtStatusBadge(status) {
+  const cls = classifyLdt(status);
+  const map = { approved: 'se', conditional: 'other', other: 'other' };
+  return `<span class="decl ${map[cls]}">${escapeHtml(status || '—')}</span>`;
+}
+
+function renderLdtChart(valid) {
+  $('chartCard').style.display = valid.length ? 'block' : 'none';
+  if (!valid.length) return;
+  const ctx = document.getElementById('chart');
+  if (chartRef) { chartRef.destroy(); chartRef = null; }
+  chartRef = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: valid.map(s => s.term),
+      datasets: [
+        { label: 'Approved', data: valid.map(s => s.approved), backgroundColor: '#1B7A4D' },
+        { label: 'Conditionally Approved', data: valid.map(s => s.conditional), backgroundColor: '#0066B3' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: 'rgba(10,40,70,.08)' },
+          ticks: { color: (ctx) => (valid[ctx.index] && (valid[ctx.index].approved + valid[ctx.index].conditional) === 0) ? '#0066B3' : '#4A5A68' }
+        },
+        y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(10,40,70,.08)' } }
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: "'IBM Plex Sans', sans-serif", size: 12 } } },
+        tooltip: { callbacks: { footer: () => 'Click to jump to this row in the table' } }
+      },
+      onHover: (evt) => {
+        evt.native.target.style.cursor = resolveChartIndex(evt) != null ? 'pointer' : 'default';
+      },
+      onClick: (evt) => {
+        const idx = resolveChartIndex(evt);
+        if (idx == null) return;
+        const row = document.querySelectorAll('#resultsBody tr.rowmain')[idx];
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const wrap = row.nextElementSibling.querySelector('.detailwrap');
+        if (wrap && !wrap.classList.contains('open')) row.click();
+        row.classList.add('flash');
+        setTimeout(() => row.classList.remove('flash'), 1000);
+      }
+    }
+  });
+}
+
+async function runLdtSearchForTerms(terms, onProgress) {
+  const results = [];
+  const proxyUrl = getLdtProxyUrl();
+  for (let i = 0; i < terms.length; i++) {
+    const term = terms[i];
+    onProgress(i, terms.length, term);
+    try {
+      const { total, records } = await fetchLdtBiomarker(term, proxyUrl);
+      const approved = records.filter(r => classifyLdt(r.status) === 'approved').length;
+      const conditional = records.filter(r => classifyLdt(r.status) === 'conditional').length;
+      results.push({ term, total, approved, conditional, records, error: null });
+    } catch (e) {
+      results.push({ term, total: 0, approved: 0, conditional: 0, records: [], error: e.message || String(e) });
+    }
+    if (i < terms.length - 1) await sleep(250);
+  }
+  return results;
+}
+
+async function runLdtSearch() {
+  const terms = parseTerms($('biomarkers').value);
+  if (!terms.length) { alert('Enter at least one biomarker.'); return; }
+  if (!getLdtProxyUrl()) { alert('Add your LDT proxy Worker URL in Settings (gear icon) first.'); return; }
+  localStorage.setItem('biomarker_terms', $('biomarkers').value);
+
+  $('searchBtn').disabled = true;
+  $('exportBtn').disabled = true;
+  $('emptyState').style.display = 'none';
+  $('crossCheckPrompt').style.display = 'none';
+  $('crossCard').style.display = 'none';
+  $('progressWrap').style.display = 'block';
+
+  ldtState = await runLdtSearchForTerms(terms, (i, n, term) => {
+    $('progressTxt').textContent = `Searching LDT ${i + 1} of ${n}: ${term}`;
+    $('pbarFill').style.width = `${Math.round((i / n) * 100)}%`;
+  });
+
+  $('pbarFill').style.width = '100%';
+  $('progressTxt').textContent = `Done — ${terms.length} biomarker(s) searched.`;
+  $('searchBtn').disabled = false;
+  $('exportBtn').disabled = false;
+  renderLdtResults(ldtState);
+}
+
+let crossState = [];
+
+$('crossCheckBtn').addEventListener('click', async () => {
+  if (!getLdtProxyUrl()) { alert('Add your LDT proxy Worker URL in Settings (gear icon) first.'); return; }
+  const terms = state.filter(s => !s.error && s.approved === 0).map(s => s.term);
+  if (!terms.length) return;
+
+  $('crossCheckBtn').disabled = true;
+  $('crossCard').style.display = 'block';
+  $('crossBody').innerHTML = `<tr><td colspan="6" class="dnote" style="padding:12px 10px">Searching LDT database for ${terms.length} biomarker(s)…</td></tr>`;
+
+  crossState = await runLdtSearchForTerms(terms, (i, n, term) => {
+    $('crossBody').innerHTML = `<tr><td colspan="6" class="dnote" style="padding:12px 10px">Searching LDT ${i + 1} of ${n}: ${escapeHtml(term)}…</td></tr>`;
+  });
+
+  renderLdtResults(crossState, { tbodyId: 'crossBody', chartAndCaptions: false });
+  $('crossCheckBtn').disabled = false;
+  $('crossCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 $('searchBtn').addEventListener('click', runSearch);
 
+function ldtSummaryRows(targetState) {
+  const { valid, errored } = getLdtRanked(targetState);
+  return [
+    ...valid.map((s, i) => ({
+      Rank: i + 1, Biomarker: s.term, 'Total LDT Matches': s.total,
+      Approved: s.approved, 'Conditionally Approved': s.conditional, Error: ''
+    })),
+    ...errored.map(s => ({
+      Rank: '', Biomarker: s.term, 'Total LDT Matches': '',
+      Approved: '', 'Conditionally Approved': '', Error: s.error
+    }))
+  ];
+}
+
+function ldtDetailRows(targetState) {
+  const detailRows = [];
+  targetState.filter(s => !s.error).forEach(s => {
+    s.records.forEach(r => {
+      detailRows.push({
+        Biomarker: s.term,
+        'Facility Name': r.facilityName || '',
+        Analyte: r.analyte || '',
+        'Specimen Type': r.specimenType || '',
+        'Permit Category': r.permitCategory || '',
+        Status: r.status || '',
+        'Detail Link': r.detailLink || ''
+      });
+    });
+  });
+  return detailRows;
+}
+
 $('exportBtn').addEventListener('click', () => {
+  const ts = new Date().toISOString().slice(0, 10);
+  const wb = XLSX.utils.book_new();
+
+  if (searchMode === 'ldt') {
+    if (!ldtState.length) return;
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ldtSummaryRows(ldtState)), 'LDT Summary');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ldtDetailRows(ldtState)), 'LDT Details');
+    XLSX.writeFile(wb, `NY_LDT_Biomarker_Search_${ts}.xlsx`);
+    return;
+  }
+
   if (!state.length) return;
   const { valid, errored } = getRanked();
   const summaryRows = [
@@ -710,10 +1139,12 @@ $('exportBtn').addEventListener('click', () => {
     });
   });
 
-  const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Details');
-  const ts = new Date().toISOString().slice(0, 10);
+  if (crossState.length) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ldtSummaryRows(crossState)), 'LDT Cross-Check');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ldtDetailRows(crossState)), 'LDT Cross-Check Details');
+  }
   XLSX.writeFile(wb, `FDA_510k_Biomarker_Search_${ts}.xlsx`);
 });
 </script>
