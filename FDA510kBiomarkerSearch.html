@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FDA 510(k) Biomarker Search</title>
+<title>Biomarker Search</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -109,7 +109,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
   <div class="hdr">
     <div class="hdr-top">
       <div>
-        <div class="hdr-title"><i class="ti ti-dna-2"></i> FDA 510(k) Biomarker Search</div>
+        <div class="hdr-title"><i class="ti ti-dna-2"></i> Biomarker Search</div>
         <div class="hdr-sub">openFDA Device Clearance Lookup</div>
       </div>
       <div class="hdr-right">
@@ -134,7 +134,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
       <div class="stitle">Biomarkers</div>
       <div class="modetabs">
         <button class="modetab active" id="modeFda" type="button">FDA 510(k)</button>
-        <button class="modetab" id="modeLdt" type="button">LDT (NY State)</button>
+        <button class="modetab" id="modeLdt" type="button">LDT</button>
       </div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
       <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it.</div>
