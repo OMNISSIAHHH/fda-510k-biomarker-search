@@ -319,6 +319,17 @@ function escapeHtml(s) {
 // client-side and this looks for the standard IVD template's "Measurand:" field.
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+// FDA's IVD Decision Summary template labels this field "Measurand:" in most documents but
+// "Analyte:" in others, and the section letter it's under varies (seen both "B." and "C.").
+// Anchoring on "<letter>. Measurand/Analyte ... <next lettered section>" instead of just the
+// bare word avoids both false negatives (wrong label) and false positives (the word
+// "measurand"/"analyte" can appear informally elsewhere in the document, e.g. in a
+// traceability paragraph, well before or after the real labeled field).
+// The section-letter prefix isn't consistently punctuated across FDA's template revisions —
+// some documents use "C. Measurand:", others "B Measurand:" with no period at all — so the
+// period after the letter has to be optional on both ends of the pattern.
+const MEASURAND_PATTERN = /[A-Z]\.?\s*(Measurand|Analyte)s?:?\s*([\s\S]{1,300}?)\s*(?:[A-Z]\.?\s*Type of Test|Type of Test:)/i;
+
 async function extractMeasurand(arrayBuffer) {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let fullText = '';
@@ -326,10 +337,10 @@ async function extractMeasurand(arrayBuffer) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     fullText += content.items.map(it => it.str).join(' ') + '\n';
-    if (/measurand/i.test(fullText)) break; // stop once found — no need to parse the rest
+    const m = fullText.match(MEASURAND_PATTERN);
+    if (m) return { label: m[1], value: m[2].trim() };
   }
-  const m = fullText.match(/measurand:?\s*([\s\S]{1,300}?)\s*(?:[A-Z]\.\s*Type of Test|Type of Test:)/i);
-  return m ? m[1].trim() : null;
+  return null;
 }
 
 async function checkMeasurand(button) {
@@ -355,10 +366,10 @@ async function checkMeasurand(button) {
       throw new Error(msg);
     }
     const buf = await res.arrayBuffer();
-    const measurandText = await extractMeasurand(buf);
+    const found = await extractMeasurand(buf);
 
-    if (!measurandText) {
-      resultSpan.textContent = 'No "Measurand" field found in this device\'s Decision Summary.';
+    if (!found) {
+      resultSpan.textContent = 'No "Measurand"/"Analyte" field found in this device\'s review document.';
       resultSpan.className = 'measurand-result err';
       button.remove();
       return;
@@ -375,10 +386,10 @@ async function checkMeasurand(button) {
     if (expansion) candidateTokens = candidateTokens.concat(splitExpansionTokens(expansion.full));
     candidateTokens = candidateTokens.map(t => t.toLowerCase()).filter(t => t.length > 1);
 
-    const lowerMeasurand = measurandText.toLowerCase();
+    const lowerMeasurand = found.value.toLowerCase();
     const matched = candidateTokens.some(tok => lowerMeasurand.includes(tok));
 
-    resultSpan.innerHTML = `<span class="decl ${matched ? 'se' : 'nse'}">${matched ? 'Matches' : 'No match'}</span> Measurand: ${escapeHtml(measurandText)}`;
+    resultSpan.innerHTML = `<span class="decl ${matched ? 'se' : 'nse'}">${matched ? 'Matches' : 'No match'}</span> ${escapeHtml(found.label)}: ${escapeHtml(found.value)}`;
     button.remove();
   } catch (e) {
     resultSpan.textContent = `Measurand check failed: ${e.message || String(e)}`;

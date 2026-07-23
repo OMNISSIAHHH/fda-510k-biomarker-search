@@ -146,28 +146,40 @@ Notes for anyone modifying this:
 
 ## `fda-pdf-proxy.js` — what it does
 
-`GET <worker-url>?k=<K number, e.g. K051061>` → the raw bytes of that device's 510(k)
-**Decision Summary** PDF (`Content-Type: application/pdf`), or a JSON error if there isn't one
-(HTTP 404) or something else went wrong.
+`GET <worker-url>?k=<K number, e.g. K051061>` → the raw bytes of a 510(k) review document PDF
+(`Content-Type: application/pdf`), or a JSON error if neither exists (HTTP 404) or something
+else went wrong.
+
+FDA's own detail page (`pmn.cfm?ID=...`) labels this document inconsistently across devices —
+"Summary", "FDA Review", "Review Summary", "Decision Summary" have all been seen — but that
+doesn't matter here, since the Worker goes straight to the known URL patterns rather than
+scraping link text. There are two possible documents, and not every device has either one:
+the modern "Decision Summary" template (`/cdrh_docs/reviews/{K}.pdf`), tried first, and the
+plain clearance-letter-style "Summary" (`/cdrh_docs/pdf{YY}/{K}.pdf`, where `YY` is the
+2-digit year embedded in the K number), tried as a fallback if the first 404s.
 
 This Worker deliberately does **not** parse the PDF — Cloudflare Workers have no built-in PDF
 parser, and bundling one would require a build step this project avoids. It's a pure byte
 relay. The tool extracts text from the returned PDF client-side using
 [PDF.js](https://mozilla.github.io/pdf.js/) (loaded from a CDN, same pattern as Chart.js/
-SheetJS) and looks for the "Measurand:" field that FDA's standard IVD Decision Summary
-template includes — this is a separate, more detailed document from the plain clearance
-letter, and confirms what a device actually measures more authoritatively than matching
-against its device name alone.
+SheetJS) and looks for the field FDA's standard IVD template uses to state what a device
+actually measures — this confirms it more authoritatively than matching against the device
+name alone.
 
 Notes for anyone modifying this:
 
-- Not every 510(k) has a Decision Summary — coverage is good for modern IVD/clinical
-  chemistry devices but far weaker (or absent) for older submissions (pre-2000s ones
-  regularly 404).
+- Not every 510(k) has either document — coverage is good for modern IVD/clinical chemistry
+  devices but far weaker (or absent) for older submissions (pre-2000s ones regularly 404 on
+  both).
 - accessdata.fda.gov's bot detection blocks requests without a realistic browser
   `User-Agent` header (returns a small HTML "apology" page instead of the PDF) — the Worker
   already sets one; don't remove it.
-- The "Measurand:" field is extracted with a regex against the plain-text layout FDA's
-  template produces (`Measurand:` followed by the value, terminated by the next section,
-  typically `Type of Test:`). This is reliable for the standard template but not guaranteed
+- The field is labeled **"Measurand:"** in most documents but **"Analyte:"** in others, and
+  the lettered section it falls under varies (seen both `B` and `C`), with or without a
+  period after the letter (`"C. Measurand:"` vs `"B Measurand:"`). The client-side regex
+  (`MEASURAND_PATTERN` in the main HTML file) accounts for all of these, anchored on the
+  section-letter-plus-label structure and terminated at the next section (`Type of Test:`) —
+  matching on the bare word alone caused false negatives (wrong label) and would risk false
+  positives (the word can appear informally elsewhere in the document, e.g. in a
+  traceability paragraph). This is reliable for the templates seen so far but not guaranteed
   for every document format FDA has used over the decades.
