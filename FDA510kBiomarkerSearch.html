@@ -147,7 +147,7 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
         <button class="modetab" id="modeLdt" type="button">LDT</button>
       </div>
       <textarea id="biomarkers" placeholder="Enter one biomarker per line or comma-separated, e.g.&#10;HbA1c&#10;Troponin&#10;PSA&#10;BNP"></textarea>
-      <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it, though not necessarily the literal word "anti": "antibody", "antibodies", "autoantibody", "autoantibodies", and "AB" all count too, since device names use those just as often.</div>
+      <div class="hint" id="hintFda">Terms are matched against device name and 510(k) summary text (openFDA has no dedicated "biomarker" field). Greek letters (α, β, …) are automatically spelled out (alpha, beta, …). If an exact phrase finds nothing, the search automatically widens — first dropping word order, then the Ig-class suffix — and flags the result as <span class="mmtag" style="cursor:default">Broad match</span> / <span class="mmtag" style="cursor:default">Antigen-only match</span> so you know it's less precise. "Anti-" is never dropped when the term has it — it distinguishes an antibody test from the antigen itself, so a real match must still contain it, though not necessarily the literal word "anti" ("antibody", "antibodies", "autoantibody", "autoantibodies", and "AB" all count too), and not necessarily in the same field as the antigen name — FDA splits one device's info across several fields, and it's common for the antigen abbreviation to appear in one and the antibody wording in another.</div>
       <div class="hint" id="hintLdt" style="display:none">Terms are matched against the analyte/test name in the NY State Wadsworth Center CLEP "Approved Laboratory Developed Tests" database (any-word match, same as the site's own default). Requires an LDT proxy Worker URL configured in Settings (gear icon).</div>
       <div class="actions">
         <button class="btn-primary" id="searchBtn"><i class="ti ti-search"></i> Search</button>
@@ -455,6 +455,19 @@ function antiSynonymClause(field) {
   return '(' + ANTI_SYNONYMS.map(w => `${field}:"${w}"`).join(' OR ') + ')';
 }
 
+// openFDA splits one device across several fields (device_name, openfda.device_name,
+// statement_or_summary), and real records routinely say the antigen abbreviation in one and
+// the anti/antibody wording in another — e.g. K071961 "MESACUP MODELS BP180 AND BP230 ELISA
+// KITS" has "BP180" only in device_name, while openfda.device_name separately says
+// "Autoantibodies, Skin (Bullous Pemphigoid 180...)". Requiring both inside the SAME field
+// (like the antigen/isotype tokens still do) missed this real, correctly-cleared device
+// entirely. The anti/antibody requirement is checked across all three fields independently
+// instead — it just has to be true *somewhere* on the record, not in the same field as the
+// antigen name.
+function crossFieldAntiClause() {
+  return '(' + SEARCH_FIELDS.map(antiSynonymClause).join(' OR ') + ')';
+}
+
 function stripIsotypeSuffix(term) {
   return term.replace(/\s+Ig[AGME][1-4]?$/i, '').trim();
 }
@@ -463,38 +476,38 @@ function splitTokens(term) {
   return term.split(/[\s/]+/).map(s => s.trim()).filter(Boolean);
 }
 
-// Builds one field's clause: every token required, plus (when requireAnti) one of the
-// anti/antibody synonyms required too — as its own OR-group, not a single fixed word.
-function tokenClause(field, tokens, requireAnti) {
-  const parts = tokens.map(tok => `${field}:"${tok}"`);
-  if (requireAnti) parts.push(antiSynonymClause(field));
-  return '(' + parts.join(' AND ') + ')';
+function tokenClause(field, tokens) {
+  return '(' + tokens.map(tok => `${field}:"${tok}"`).join(' AND ') + ')';
 }
 
-// Tier 2: same words, adjacency/order no longer required (still requires every word,
-// including an anti/antibody synonym when the term implies one, to appear somewhere in the
-// same field).
+function withCrossFieldAnti(mainExpr, requireAnti) {
+  return requireAnti ? `(${mainExpr} AND ${crossFieldAntiClause()})` : mainExpr;
+}
+
+// Tier 2: same words, adjacency/order no longer required (still requires every word to
+// appear somewhere in the same field — an anti/antibody synonym, when the term implies one,
+// is checked separately across all fields, not tied to that same field).
 function buildBroadExpr(term) {
   const requireAnti = hasAntiPrefix(term);
   const tokens = splitTokens(stripAntiPrefix(term));
   if (!tokens.length) return null;
   if (!requireAnti && tokens.length < 2) return null;
-  return fieldOr(f => tokenClause(f, tokens, requireAnti));
+  return withCrossFieldAnti(fieldOr(f => tokenClause(f, tokens)), requireAnti);
 }
 
 // Tier 3: also drop the Ig-class suffix — many cleared assays don't state the isotype in
 // their device name even though they target a specific one. Recall goes up but this can no
 // longer confirm the isotype itself matched, so callers must label it as such. An
-// anti/antibody synonym is still required when the term implies one — that's what separates
-// an antibody test from the antigen/analyte itself, so dropping it would change what a match
-// means.
+// anti/antibody synonym is still required when the term implies one (checked across all
+// fields, per crossFieldAntiClause above) — that's what separates an antibody test from the
+// antigen/analyte itself, so dropping it would change what a match means.
 function buildAntigenExpr(term) {
   const requireAnti = hasAntiPrefix(term);
   const antigen = stripAntiPrefix(stripIsotypeSuffix(term));
   if (!antigen) return null;
   const tokens = splitTokens(antigen);
-  if (tokens.length > 1 || requireAnti) return fieldOr(f => tokenClause(f, tokens, requireAnti));
-  return buildExactExpr(antigen);
+  const mainExpr = tokens.length > 1 ? fieldOr(f => tokenClause(f, tokens)) : buildExactExpr(antigen);
+  return withCrossFieldAnti(mainExpr, requireAnti);
 }
 
 // Reference list of common biomarker abbreviations -> full name, keyed by the term with
@@ -529,8 +542,8 @@ const ABBREVIATION_EXPANSIONS = {
   'achr': { full: 'Acetylcholine Receptor' },
   'aqp4': { full: 'Aquaporin-4' },
   'nmdar': { full: 'N-Methyl-D-Aspartate Receptor' },
-  'bp180': { full: 'Bullous Pemphigoid Antigen 180' },
-  'bp230': { full: 'Bullous Pemphigoid Antigen 230' },
+  'bp180': { full: 'Bullous Pemphigoid 180' },
+  'bp230': { full: 'Bullous Pemphigoid 230' },
   'dsg1': { full: 'Desmoglein 1' },
   'dsg3': { full: 'Desmoglein 3' },
   'if': { full: 'Intrinsic Factor' },
@@ -591,7 +604,8 @@ function buildExpansionExpr(expansion, requireAnti) {
   const phrase = expansion.search || expansion.full;
   const groups = phrase.split('/').map(splitExpansionTokens).filter(g => g.length);
   if (!groups.length) return null;
-  return fieldOr(f => '(' + groups.map(tokens => tokenClause(f, tokens, requireAnti)).join(' OR ') + ')');
+  const mainExpr = fieldOr(f => '(' + groups.map(tokens => tokenClause(f, tokens)).join(' OR ') + ')');
+  return withCrossFieldAnti(mainExpr, requireAnti);
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
