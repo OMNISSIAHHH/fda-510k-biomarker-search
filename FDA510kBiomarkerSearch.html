@@ -225,16 +225,36 @@ const savedKey = localStorage.getItem('openfda_api_key');
 if (savedKey) $('apiKey').value = savedKey;
 $('apiKey').addEventListener('change', (e) => localStorage.setItem('openfda_api_key', e.target.value.trim()));
 
+// A bare domain pasted without "https://" (e.g. "ldt-proxy.example.workers.dev") isn't an
+// absolute URL, so fetch() silently resolves it *relative to this file* instead of erroring
+// — on a file:// page that produces a nonsense file:// URL, which then fails as a confusing
+// "blocked by CORS policy" error that has nothing to do with CORS. Normalize it up front, and
+// write the corrected value back into the field so it's visibly fixed, not just fixed
+// internally.
+function normalizeProxyUrl(raw) {
+  let url = (raw || '').trim().replace(/\/$/, '');
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  return url;
+}
+
 const savedLdtUrl = localStorage.getItem('ldt_proxy_url');
-if (savedLdtUrl) $('ldtProxyUrl').value = savedLdtUrl;
-$('ldtProxyUrl').addEventListener('change', (e) => localStorage.setItem('ldt_proxy_url', e.target.value.trim().replace(/\/$/, '')));
+if (savedLdtUrl) $('ldtProxyUrl').value = normalizeProxyUrl(savedLdtUrl);
+$('ldtProxyUrl').addEventListener('change', (e) => {
+  const url = normalizeProxyUrl(e.target.value);
+  e.target.value = url;
+  localStorage.setItem('ldt_proxy_url', url);
+});
 
 const savedFdaPdfUrl = localStorage.getItem('fda_pdf_proxy_url');
-if (savedFdaPdfUrl) $('fdaPdfProxyUrl').value = savedFdaPdfUrl;
-$('fdaPdfProxyUrl').addEventListener('change', (e) => localStorage.setItem('fda_pdf_proxy_url', e.target.value.trim().replace(/\/$/, '')));
+if (savedFdaPdfUrl) $('fdaPdfProxyUrl').value = normalizeProxyUrl(savedFdaPdfUrl);
+$('fdaPdfProxyUrl').addEventListener('change', (e) => {
+  const url = normalizeProxyUrl(e.target.value);
+  e.target.value = url;
+  localStorage.setItem('fda_pdf_proxy_url', url);
+});
 
 function getFdaPdfProxyUrl() {
-  return $('fdaPdfProxyUrl').value.trim().replace(/\/$/, '');
+  return normalizeProxyUrl($('fdaPdfProxyUrl').value);
 }
 
 const savedTerms = localStorage.getItem('biomarker_terms');
@@ -634,7 +654,7 @@ async function fetchBiomarker(term, apiKey) {
 let ldtState = [];
 
 function getLdtProxyUrl() {
-  return $('ldtProxyUrl').value.trim().replace(/\/$/, '');
+  return normalizeProxyUrl($('ldtProxyUrl').value);
 }
 
 // NY's LDT search defaults to "contains any word" across whitespace-separated words in the
