@@ -1,17 +1,26 @@
-# LDT proxy Worker
+# Proxy Workers
 
-`ldt-proxy.js` is a Cloudflare Worker that lets the biomarker search tool query NY State's
-Wadsworth Center CLEP "Approved Laboratory Developed Tests" database. It exists only because
-that site sends no `Access-Control-Allow-Origin` header — without it, a browser blocks the
-tool's `fetch()` from reading the response at all. This Worker fetches the page server-side
-(no CORS restriction between servers), parses it, and returns clean JSON with CORS enabled.
+This folder has two small Cloudflare Workers. Both exist for the same reason: the site each
+one talks to sends no `Access-Control-Allow-Origin` header, so a browser blocks the tool's
+`fetch()` from reading the response directly. Each Worker fetches the real site server-side
+(no CORS restriction between servers) and returns the result with CORS enabled, so the tool
+can call the Worker instead.
+
+| Worker | Talks to | Used for |
+|---|---|---|
+| `ldt-proxy.js` | NY State Wadsworth Center CLEP LDT database | The **LDT** search tab |
+| `fda-pdf-proxy.js` | accessdata.fda.gov (510(k) Decision Summary PDFs) | "Check Measurand" on an FDA search result |
+
+Both are optional — the FDA 510(k) search tab works with neither of them deployed. Deploy
+whichever feature you want to use; skip the other if you don't need it.
 
 ## Deploy (no local Node/wrangler needed)
 
-This takes about 5 minutes, entirely in the browser, on Cloudflare's free plan (no credit
-card required). Cloudflare's dashboard wording shifts slightly between account types and
-over time — if a button doesn't say the exact text below, look for the button that matches
-the *description* next to it; the flow itself is stable.
+This takes about 5 minutes per Worker, entirely in the browser, on Cloudflare's free plan (no
+credit card required). Cloudflare's dashboard wording shifts slightly between account types
+and over time — if a button doesn't say the exact text below, look for the button that
+matches the *description* next to it; the flow itself is stable. Repeat these steps once for
+each Worker you want (they're independent — different name, different code, different URL).
 
 **1. Create a Cloudflare account (skip if you already have one)**
 
@@ -28,26 +37,28 @@ Log in at **[dash.cloudflare.com](https://dash.cloudflare.com)**. In the left si
 If this is the very first Worker on your account, Cloudflare will ask you to choose a
 subdomain, e.g. typing `francis-tools` gives you `*.francis-tools.workers.dev` for every
 Worker you ever create. Pick anything available and confirm — you can't easily change this
-later, but it doesn't matter what you pick.
+later, but it doesn't matter what you pick. Skip this step if you've already deployed one
+Worker before (e.g. you're now adding the second one).
 
 **4. Create the Worker**
 
 Click **Create application** (or just **Create**, depending on what you see) → choose
 **Create Worker** (sometimes labeled **"Hello World" Worker** or similar — you want the
 plain/blank starter, not a framework template like Next.js or a specific gallery example).
-Give it a name when prompted, e.g. `ldt-proxy` (this becomes part of the URL, so keep it
-short — the boxes usually accept `-` but not spaces). Click **Deploy** to create it with its
-placeholder "Hello World" code — you'll replace that code next.
+Give it a name when prompted — e.g. `ldt-proxy` or `fda-pdf-proxy` (this becomes part of the
+URL, so keep it short — the boxes usually accept `-` but not spaces). Click **Deploy** to
+create it with its placeholder "Hello World" code — you'll replace that code next.
 
 **5. Replace the code**
 
-On the Worker's page, click **Edit code** (sometimes shown as a `</>`  icon, or "Edit" in a
-dropdown). This opens a browser-based code editor showing a file, usually named
-`worker.js` or `index.js`, containing placeholder `Hello World` code.
+On the Worker's page, click **Edit code** (sometimes shown as a `</>` icon, or "Edit" in a
+dropdown). This opens a browser-based code editor showing a file, usually named `worker.js`
+or `index.js`, containing placeholder `Hello World` code.
 
 - Select **all** the existing text in that file (Ctrl+A / Cmd+A) and delete it.
-- Open [`ldt-proxy.js`](ldt-proxy.js) from this repo, copy its **entire contents**, and paste
-  it into the editor in place of the placeholder.
+- Open the file you want from this repo — [`ldt-proxy.js`](ldt-proxy.js) or
+  [`fda-pdf-proxy.js`](fda-pdf-proxy.js) — copy its **entire contents**, and paste it into the
+  editor in place of the placeholder.
 
 **6. Deploy**
 
@@ -62,34 +73,42 @@ looking like:
 ```
 https://ldt-proxy.<your-subdomain>.workers.dev
 ```
-
-Copy that, paste `?q=GADA` on the end, and open it in a new browser tab, e.g.:
-
+or
 ```
-https://ldt-proxy.<your-subdomain>.workers.dev?q=GADA
+https://fda-pdf-proxy.<your-subdomain>.workers.dev
 ```
 
-You should see a page of JSON starting with `{"term":"GADA","total":...`. If instead you see
-an error page or blank response, see **Troubleshooting** below before moving on.
+Test it directly in a new browser tab before wiring it into the tool:
+
+- **LDT proxy**: append `?q=GADA` — you should see a page of JSON starting with
+  `{"term":"GADA","total":...`.
+- **FDA PDF proxy**: append `?k=K051061` — your browser should open/download an actual PDF
+  (a real Decision Summary). If you see JSON like `{"error":...}` instead, read the message —
+  `Missing or malformed required query parameter: k` just means you forgot `?k=...`.
+
+If instead you see an error page or blank response, see **Troubleshooting** below.
 
 **8. Wire it into the tool**
 
-Open `FDA510kBiomarkerSearch.html` in a browser, click the gear icon (Settings), and paste
-the Worker's base URL (**without** the `?q=...` part you added to test) into
-**LDT proxy Worker URL**. Switch to the **LDT (NY State)** tab and search a biomarker to
-confirm.
+Open `FDA510kBiomarkerSearch.html` in a browser, click the gear icon (Settings), and paste the
+Worker's base URL (**without** the `?q=...`/`?k=...` part you added to test) into the matching
+field — **LDT proxy Worker URL** or **FDA PDF proxy Worker URL**. Then either switch to the
+**LDT** tab and search a biomarker, or run an FDA search and click **Check Measurand** on a
+result, to confirm.
 
 ### Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| Step 7's test URL shows Cloudflare's default "Hello World" text, not JSON | The code paste in step 5 didn't fully replace the placeholder, or you deployed before saving the paste. Go back to **Edit code**, confirm the file is `ldt-proxy.js`'s content top-to-bottom (starts with `// LDT search proxy for...`), then deploy again. |
-| Test URL shows `{"error":"Missing required query parameter: q"}` | Working correctly — you forgot to add `?q=GADA` (or similar) to the end of the URL. |
-| Test URL shows `{"error":"LDT lookup failed", ...}` | The Worker deployed fine but couldn't reach or parse wadsworth.org — check the `detail` field in the response; a timeout usually just means retry, since wadsworth.org can be slow. |
-| The tool itself shows "Network error — could not reach the LDT proxy" | The URL pasted into Settings is wrong or missing — re-check it matches exactly what step 7 showed (no trailing `?q=...`, no trailing slash). |
+| Step 7's test URL shows Cloudflare's default "Hello World" text, not JSON/a PDF | The code paste in step 5 didn't fully replace the placeholder, or you deployed before saving the paste. Go back to **Edit code**, confirm the file starts with the matching Worker's opening comment (`// LDT search proxy for...` or `// Generic byte-relay proxy for FDA...`), then deploy again. |
+| LDT test URL shows `{"error":"Missing required query parameter: q"}` | Working correctly — you forgot to add `?q=GADA` (or similar) to the end of the URL. |
+| LDT test URL shows `{"error":"LDT lookup failed", ...}` | The Worker deployed fine but couldn't reach or parse wadsworth.org — check the `detail` field; a timeout usually just means retry, since wadsworth.org can be slow. |
+| FDA PDF test URL shows `{"error":"No Decision Summary available for this K number",...}` | Working correctly — not every device has one (this is common for older/simpler submissions). Try a different K number. |
+| FDA PDF test URL shows `{"error":"Upstream did not return a PDF (possibly rate-limited)...`" | accessdata.fda.gov has aggressive bot detection and occasionally blocks rapid requests — wait a bit and retry. |
+| The tool shows "Network error — could not reach the LDT proxy" / "Add an FDA PDF proxy Worker URL..." | The URL pasted into Settings is wrong, missing, or empty — re-check it matches exactly what step 7 showed (no trailing `?q=...`/`?k=...`, no trailing slash). |
 | Can't find "Create Worker" / only see Pages options | You may be in the **Pages** tab instead of **Workers** — look for a toggle or separate tab between "Workers" and "Pages" near the top of the section. |
 
-## What it does
+## `ldt-proxy.js` — what it does
 
 `GET <worker-url>?q=<term>&status=All|approved|conditionally_approved` →
 
@@ -114,7 +133,7 @@ confirm.
 50 records are returned — `records` is capped to keep response size/latency predictable,
 since a bare 2-3 letter antigen abbreviation can otherwise match thousands of rows).
 
-## Notes for anyone modifying this
+Notes for anyone modifying this:
 
 - The upstream query always requests the antigen/analyte term as typed by the caller — the
   *client* (not this Worker) is responsible for stripping "Anti-"/Ig-class suffixes before
@@ -124,3 +143,31 @@ since a bare 2-3 letter antigen abbreviation can otherwise match thousands of ro
   `25`, `50`, or `All`) — an arbitrary value like `100` silently breaks the filter server-side
   and the page renders as if nothing matched. This was found the hard way; don't "optimize"
   it back to a round number without re-checking against the real site.
+
+## `fda-pdf-proxy.js` — what it does
+
+`GET <worker-url>?k=<K number, e.g. K051061>` → the raw bytes of that device's 510(k)
+**Decision Summary** PDF (`Content-Type: application/pdf`), or a JSON error if there isn't one
+(HTTP 404) or something else went wrong.
+
+This Worker deliberately does **not** parse the PDF — Cloudflare Workers have no built-in PDF
+parser, and bundling one would require a build step this project avoids. It's a pure byte
+relay. The tool extracts text from the returned PDF client-side using
+[PDF.js](https://mozilla.github.io/pdf.js/) (loaded from a CDN, same pattern as Chart.js/
+SheetJS) and looks for the "Measurand:" field that FDA's standard IVD Decision Summary
+template includes — this is a separate, more detailed document from the plain clearance
+letter, and confirms what a device actually measures more authoritatively than matching
+against its device name alone.
+
+Notes for anyone modifying this:
+
+- Not every 510(k) has a Decision Summary — coverage is good for modern IVD/clinical
+  chemistry devices but far weaker (or absent) for older submissions (pre-2000s ones
+  regularly 404).
+- accessdata.fda.gov's bot detection blocks requests without a realistic browser
+  `User-Agent` header (returns a small HTML "apology" page instead of the PDF) — the Worker
+  already sets one; don't remove it.
+- The "Measurand:" field is extracted with a regex against the plain-text layout FDA's
+  template produces (`Measurand:` followed by the value, terminated by the next section,
+  typically `Type of Test:`). This is reliable for the standard template but not guaranteed
+  for every document format FDA has used over the decades.

@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -94,6 +95,11 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
 .dtable a{color:var(--acc);text-decoration:none}
 .dtable a:hover{text-decoration:underline}
 .dnote{font-size:11.5px;color:var(--tx3);padding:8px 8px 2px}
+.measurand-btn{font-family:var(--font);font-size:11px;font-weight:600;padding:4px 9px;border-radius:2px;border:1px solid var(--acc);background:transparent;color:var(--acc);cursor:pointer;white-space:nowrap}
+.measurand-btn:hover{background:var(--acc);color:#fff}
+.measurand-btn:disabled{border-color:var(--tx3);color:var(--tx3);cursor:not-allowed}
+.measurand-result{display:block;font-size:11.5px;color:var(--tx2);margin-top:4px;max-width:220px}
+.measurand-result.err{color:var(--red)}
 .decl{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:1px 7px;border:1px solid currentColor;border-radius:2px}
 .decl.se{color:var(--acc2)}
 .decl.nse{color:var(--red)}
@@ -125,6 +131,10 @@ button{font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;pad
       <div class="srow" style="margin-top:8px">
         <div class="sinfo">LDT search calls a small proxy Worker (NY's LDT site has no CORS support, so this tool can't reach it directly) — see <code>worker/README.md</code> in the repo for step-by-step deploy instructions (~5 min, no coding required).</div>
         <input class="skey" id="ldtProxyUrl" placeholder="LDT proxy Worker URL">
+      </div>
+      <div class="srow" style="margin-top:8px">
+        <div class="sinfo">Optional: "Check Measurand" on an FDA record reads the device's official Decision Summary PDF to confirm what it actually measures (same CORS problem as LDT — needs its own small proxy Worker, deployed the same way; see <code>worker/README.md</code>). Not every device has one.</div>
+        <input class="skey" id="fdaPdfProxyUrl" placeholder="FDA PDF proxy Worker URL">
       </div>
     </div>
   </div>
@@ -219,6 +229,14 @@ const savedLdtUrl = localStorage.getItem('ldt_proxy_url');
 if (savedLdtUrl) $('ldtProxyUrl').value = savedLdtUrl;
 $('ldtProxyUrl').addEventListener('change', (e) => localStorage.setItem('ldt_proxy_url', e.target.value.trim().replace(/\/$/, '')));
 
+const savedFdaPdfUrl = localStorage.getItem('fda_pdf_proxy_url');
+if (savedFdaPdfUrl) $('fdaPdfProxyUrl').value = savedFdaPdfUrl;
+$('fdaPdfProxyUrl').addEventListener('change', (e) => localStorage.setItem('fda_pdf_proxy_url', e.target.value.trim().replace(/\/$/, '')));
+
+function getFdaPdfProxyUrl() {
+  return $('fdaPdfProxyUrl').value.trim().replace(/\/$/, '');
+}
+
 const savedTerms = localStorage.getItem('biomarker_terms');
 if (savedTerms) $('biomarkers').value = savedTerms;
 
@@ -272,6 +290,88 @@ function declBadge(decisionDescription) {
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// --- Measurand check (FDA Decision Summary PDF) -----------------------------------------
+// The Decision Summary is a separate, more detailed document from the plain clearance
+// letter (statement_or_summary in the API is just a "Summary"/"Statement" flag, not the
+// actual text) and not every device has one. accessdata.fda.gov has no CORS support, so
+// worker/fda-pdf-proxy.js relays the raw PDF bytes; PDF.js (loaded via CDN) extracts text
+// client-side and this looks for the standard IVD template's "Measurand:" field.
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+async function extractMeasurand(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(it => it.str).join(' ') + '\n';
+    if (/measurand/i.test(fullText)) break; // stop once found — no need to parse the rest
+  }
+  const m = fullText.match(/measurand:?\s*([\s\S]{1,300}?)\s*(?:[A-Z]\.\s*Type of Test|Type of Test:)/i);
+  return m ? m[1].trim() : null;
+}
+
+async function checkMeasurand(button) {
+  const kNumber = button.dataset.knumber;
+  const term = button.dataset.term;
+  const resultSpan = button.nextElementSibling;
+  const proxyUrl = getFdaPdfProxyUrl();
+
+  if (!proxyUrl) {
+    resultSpan.textContent = 'Add an FDA PDF proxy Worker URL in Settings (gear icon) first.';
+    resultSpan.className = 'measurand-result err';
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  try {
+    const res = await fetch(`${proxyUrl}?k=${encodeURIComponent(kNumber)}`);
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('pdf')) {
+      let msg = `HTTP ${res.status}`;
+      try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+      throw new Error(msg);
+    }
+    const buf = await res.arrayBuffer();
+    const measurandText = await extractMeasurand(buf);
+
+    if (!measurandText) {
+      resultSpan.textContent = 'No "Measurand" field found in this device\'s Decision Summary.';
+      resultSpan.className = 'measurand-result err';
+      button.remove();
+      return;
+    }
+
+    // Compare against both the antigen core (e.g. "CENP-B") and, when the term is a known
+    // abbreviation, its full name's tokens too — "GADA" itself never appears in a spelled-out
+    // Measurand like "Glutamic acid decarboxylase (GAD) autoantibodies", but "glutamic"/
+    // "decarboxylase" do.
+    const searchTermNorm = toSearchTerm(term);
+    const antigenCore = stripAntiPrefix(stripIsotypeSuffix(searchTermNorm));
+    let candidateTokens = splitTokens(antigenCore);
+    const expansion = lookupExpansion(searchTermNorm);
+    if (expansion) candidateTokens = candidateTokens.concat(splitExpansionTokens(expansion.full));
+    candidateTokens = candidateTokens.map(t => t.toLowerCase()).filter(t => t.length > 1);
+
+    const lowerMeasurand = measurandText.toLowerCase();
+    const matched = candidateTokens.some(tok => lowerMeasurand.includes(tok));
+
+    resultSpan.innerHTML = `<span class="decl ${matched ? 'se' : 'nse'}">${matched ? 'Matches' : 'No match'}</span> Measurand: ${escapeHtml(measurandText)}`;
+    button.remove();
+  } catch (e) {
+    resultSpan.textContent = `Measurand check failed: ${e.message || String(e)}`;
+    resultSpan.className = 'measurand-result err';
+    button.disabled = false;
+    button.textContent = 'Check Measurand';
+  }
+}
+
+$('resultsBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('.measurand-btn');
+  if (btn) { e.stopPropagation(); checkMeasurand(btn); }
+});
 
 // openFDA's search backend rejects non-ASCII characters outright (HTTP 400 "Search not
 // supported"). FDA device names spell Greek letters out in plain ASCII, so transliterate
@@ -703,10 +803,13 @@ function renderResults() {
           <td>${declBadge(r.decision_description)}</td>
           <td>${escapeHtml(r.decision_date || '—')}</td>
           <td><a href="${DETAIL_BASE}${encodeURIComponent(r.k_number || '')}" target="_blank" rel="noopener">${escapeHtml(r.k_number || '')} ↗</a></td>
+          <td>${r.k_number
+            ? `<button class="measurand-btn" data-knumber="${escapeHtml(r.k_number)}" data-term="${escapeHtml(s.term)}">Check Measurand</button><span class="measurand-result"></span>`
+            : '—'}</td>
         </tr>`).join('');
       wrap.innerHTML = `
         <table class="dtable">
-          <thead><tr><th>Device Name</th><th>Submitted By</th><th>Decision</th><th>Approve Date</th><th>Detail</th></tr></thead>
+          <thead><tr><th>Device Name</th><th>Submitted By</th><th>Decision</th><th>Approve Date</th><th>Detail</th><th>Measurand</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>${shownNote}${modeNote}`;
     } else {
