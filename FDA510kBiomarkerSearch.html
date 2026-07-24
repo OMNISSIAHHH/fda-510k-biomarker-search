@@ -496,6 +496,17 @@ function tokenClause(field, tokens) {
   return '(' + tokens.map(tok => `${field}:"${tok}"`).join(' AND ') + ')';
 }
 
+// Like crossFieldAntiClause, but for an arbitrary token list: each token just has to appear
+// *somewhere* on the record, independently of which field the others matched in. Needed for
+// expansion phrases whose words are themselves scattered across fields on the real record —
+// e.g. K141274's "Anti-β2GP1-Domain1" clearance has "B2"/"Glycoprotein" only in
+// openfda.device_name (FDA's classification text) and "Domain1" only in device_name; requiring
+// all three within one field (like tokenClause does) misses it even though every word is
+// genuinely present on that same device.
+function crossFieldTokensClause(tokens) {
+  return '(' + tokens.map(tok => fieldOr(f => `${f}:"${tok}"`)).join(' AND ') + ')';
+}
+
 function withCrossFieldAnti(mainExpr, requireAnti) {
   return requireAnti ? `(${mainExpr} AND ${crossFieldAntiClause()})` : mainExpr;
 }
@@ -571,8 +582,16 @@ const ABBREVIATION_EXPANSIONS = {
   'pca': { full: 'Parietal Cell Antibody' },
   'cl': { full: 'Cardiolipin', panel: ['phospholipid'] },
   'ps/pt': { full: 'Phosphatidylserine / Prothrombin', panel: ['phospholipid'] },
-  'beta2-gp1': { full: 'Beta-2 Glycoprotein 1', panel: ['phospholipid'] },
-  'beta2-gp1-domain1': { full: 'Beta-2 Glycoprotein 1, Domain 1', panel: ['phospholipid'] },
+  // FDA's own openfda.device_name classification text calls this antigen literally "B2"
+  // (not "Beta2"/"β2") — e.g. K141274: 'System,Test,Antibodies,B2 - Glycoprotein I (B2 - Gpi)'.
+  // Its device_name is separately corrupted by a mojibake artifact ("¿2GP1-DOMAIN1" where
+  // β/ß should be), so `search` must target FDA's classification wording, not our own
+  // transliteration convention, to find it at all.
+  'beta2-gp1': { full: 'Beta-2 Glycoprotein 1', search: 'B2 Glycoprotein', panel: ['phospholipid'] },
+  // "Domain1" only ever appears in device_name, never alongside "B2"/"Glycoprotein" in the
+  // same field (those live in openfda.device_name) — crossFieldTokensClause (see
+  // buildExpansionExpr) is what makes this findable at all.
+  'beta2-gp1-domain1': { full: 'Beta-2 Glycoprotein 1, Domain 1', search: 'B2 Glycoprotein Domain1', panel: ['phospholipid'] },
   'ccp': { full: 'Cyclic Citrullinated Peptide' },
   'ra33': { full: 'Rheumatoid Arthritis Antigen 33 (hnRNP-A2)', panel: ['connective tissue', 'ena'] },
   'mcv': { full: 'Mutated Citrullinated Vimentin' },
@@ -618,14 +637,18 @@ function splitExpansionTokens(phrase) {
 // Tier 4: search by the expanded full name instead of the abbreviation. Some device names
 // spell the antigen out even when the lab-shorthand abbreviation never appears verbatim
 // (e.g. "GADA" doesn't occur in FDA text, but "Glutamic Acid Decarboxylase" does). A "/"
-// in the full name marks alternate synonyms (e.g. "Ro52 / TRIM21") — those are OR'd, while
-// the words within each alternative are AND'd.
+// in the full name marks alternate synonyms (e.g. "Ro52 / TRIM21") — those are OR'd. Each
+// alternative's own words are matched cross-field (crossFieldTokensClause) rather than
+// required within one field — this is the last-resort tier already, and real records
+// routinely spell one word of a multi-word name in openFDA's classification text
+// (openfda.device_name) while another word only appears in the free-text device_name (see
+// the beta2-gp1-domain1 entry below), so same-field AND would miss genuine matches here too.
 function buildExpansionExpr(expansion, requireAnti) {
   if (!expansion) return null;
   const phrase = expansion.search || expansion.full;
   const groups = phrase.split('/').map(splitExpansionTokens).filter(g => g.length);
   if (!groups.length) return null;
-  const mainExpr = fieldOr(f => '(' + groups.map(tokens => tokenClause(f, tokens)).join(' OR ') + ')');
+  const mainExpr = '(' + groups.map(crossFieldTokensClause).join(' OR ') + ')';
   return withCrossFieldAnti(mainExpr, requireAnti);
 }
 
